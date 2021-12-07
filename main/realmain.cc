@@ -4,6 +4,7 @@
 #define FULL_BUILD_ONLY(X) X;
 #include "core/proto/proto.h" // has to be included first as it violates our poisons
 // intentional comment to stop from reformatting
+#include "absl/strings/str_split.h"
 #include "common/statsd/statsd.h"
 #include "common/web_tracer_framework/tracing.h"
 #include "main/autogen/autogen.h"
@@ -16,6 +17,7 @@
 #include "main/lsp/LSPOutput.h"
 #include "main/lsp/lsp.h"
 #include "main/minimize/minimize.h"
+#include "packager/rbi_gen.h"
 #endif
 
 #include "absl/strings/str_cat.h"
@@ -747,6 +749,30 @@ int realmain(int argc, char *argv[]) {
             logger->error("Cannot write metrics file at `{}`", opts.metricsFile);
         }
     }
+
+    if (!opts.serializeClass.empty()) {
+        auto components = absl::StrSplit(opts.serializeClass, "::");
+        core::ClassOrModuleRef klass = core::Symbols::root();
+        bool found = true;
+        for (auto &component : components) {
+            auto name = gs->lookupNameConstant(component);
+            if (!name.exists()) {
+                found = false;
+                break;
+            }
+            auto member = klass.data(*gs)->findMember(*gs, name);
+            if (!member.exists() || !member.isClassOrModule()) {
+                found = false;
+                break;
+            }
+            klass = member.asClassOrModuleRef();
+        }
+
+        if (found) {
+            opts.fs->writeFile("out.rbi", packager::RBIGenerator::run(*gs, klass));
+        }
+    }
+
 #endif
     if (!gs || gs->hadCriticalError() || (gsForMinimize && gsForMinimize->hadCriticalError())) {
         returnCode = 10;

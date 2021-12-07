@@ -433,6 +433,8 @@ buildOptions(const vector<pipeline::semantic_extension::SemanticExtensionProvide
                                "Errors not mentioned will be silenced. "
                                "This option can be passed multiple times.",
                                cxxopts::value<vector<int>>(), "errorCode");
+    options.add_options("dev")("serialize-class", "Serialize the given class name.",
+                               cxxopts::value<string>()->default_value(""));
     options.add_options("dev")("suppress-error-code",
                                "Error code to exclude from reporting. "
                                "Errors mentioned will be silenced. "
@@ -905,6 +907,8 @@ void readOptions(Options &opts,
                 opts.secondaryTestPackageNamespaces.emplace_back(ns);
             }
         }
+
+        opts.serializeClass = raw["serialize-class"].as<string>();
 
         extractAutoloaderConfig(raw, opts, logger);
         opts.errorUrlBase = raw["error-url-base"].as<string>();
