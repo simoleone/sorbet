@@ -358,31 +358,38 @@ public:
             return;
         }
 
-        emitUnformattedLine(prettySigForMethod(gs, method, nullptr, method.data(gs)->resultType, nullptr));
-        emitUnformattedLine(prettyDefForMethod(gs, method));
-        emitLine("end");
+        if (method.data(gs)->hasSig()) {
+            emitUnformattedLine(prettySigForMethod(gs, method, nullptr, method.data(gs)->resultType, nullptr));
+        }
+        emitUnformattedLine(prettyDefForMethod(gs, method) + "; end");
     }
 
     void maybeEmitInitialized(core::MethodRef method, const std::vector<core::FieldRef> &fields) {
         if (fields.empty() && !method.exists()) {
             return;
         }
+        string methodDef;
         if (method.exists()) {
-            emitUnformattedLine(prettySigForMethod(gs, method, nullptr, method.data(gs)->resultType, nullptr));
-            emitUnformattedLine(prettyDefForMethod(gs, method));
+            if (method.data(gs)->hasSig()) {
+                emitUnformattedLine(prettySigForMethod(gs, method, nullptr, method.data(gs)->resultType, nullptr));
+            }
+            methodDef = prettyDefForMethod(gs, method);
         } else {
             emitLine("sig {void}");
-            emitLine("def initialize");
+            methodDef = "def initialize";
         }
 
-        if (!fields.empty()) {
+        if (fields.empty()) {
+            emitLine(methodDef + "; end");
+        } else {
+            emitLine(methodDef);
             tab();
             for (auto field : fields) {
                 emit(field);
             }
             untab();
+            emitLine("end");
         }
-        emitLine("end");
     }
     void emit(core::FieldRef field) {
         if (field.data(gs)->isStaticField()) {
