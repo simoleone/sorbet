@@ -9,7 +9,7 @@ namespace sorbet::packager {
  */
 class RBIGenerator final {
 public:
-    static std::string run(const core::GlobalState &gs, core::ClassOrModuleRef klass);
+    static std::string run(const core::GlobalState &gs, core::ClassOrModuleRef packageNamespace);
 };
 } // namespace sorbet::packager
 

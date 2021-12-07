@@ -5,6 +5,61 @@ using namespace std;
 namespace sorbet::packager {
 namespace {
 
+class Indent;
+
+class Output final {
+private:
+    friend class Indent;
+
+    fmt::memory_buffer out;
+    int indent = 0;
+    std::string tabStr = "";
+
+    void resetTabString() {
+        tabStr = string(indent * 2, ' ');
+    }
+
+    void tab() {
+        indent++;
+        resetTabString();
+    }
+
+    void untab() {
+        indent--;
+        resetTabString();
+    }
+
+public:
+    template <typename... T> void println(fmt::format_string<T...> fmt, T &&...args) {
+        fmt::format_to(std::back_inserter(out), tabStr);
+        fmt::format_to(std::back_inserter(out), fmt, args...);
+        fmt::format_to(std::back_inserter(out), "\n");
+    }
+
+    void println(string_view arg) {
+        fmt::format_to(std::back_inserter(out), tabStr);
+        std::copy(arg.begin(), arg.end(), std::back_inserter(out));
+        fmt::format_to(std::back_inserter(out), "\n");
+    }
+
+    string toString() {
+        return fmt::to_string(out);
+    }
+};
+
+class Indent {
+private:
+    Output &out;
+
+public:
+    Indent(Output &out) : out(out) {
+        out.tab();
+    }
+    ~Indent() {
+        out.untab();
+    }
+};
+
 // TODO: copied from lsp_helpers.cc. Move to a common utils package.
 core::TypePtr getResultType(const core::GlobalState &gs, const core::TypePtr &type, core::SymbolRef inWhat,
                             core::TypePtr receiver, const core::TypeConstraint *constr) {
@@ -190,39 +245,8 @@ string prettyDefForMethod(const core::GlobalState &gs, core::MethodRef method) {
 // TODO: Share with minimizer.cc.
 class RBIExporter final {
 private:
-    fmt::memory_buffer out;
     const core::GlobalState &gs;
-    int indent = 0;
-    std::string tabStr = "";
-
-    // TODO: Move formatting stuff to separate class.
-
-    void resetTabString() {
-        tabStr = string(indent * 2, ' ');
-    }
-
-    // TODO: RAII?
-    void tab() {
-        indent++;
-        resetTabString();
-    }
-
-    void untab() {
-        indent--;
-        resetTabString();
-    }
-
-    template <typename... T> void emitLine(fmt::format_string<T...> fmt, T &&...args) {
-        fmt::format_to(std::back_inserter(out), tabStr);
-        fmt::format_to(std::back_inserter(out), fmt, args...);
-        fmt::format_to(std::back_inserter(out), "\n");
-    }
-
-    void emitUnformattedLine(string_view arg) {
-        fmt::format_to(std::back_inserter(out), tabStr);
-        std::copy(arg.begin(), arg.end(), std::back_inserter(out));
-        fmt::format_to(std::back_inserter(out), "\n");
-    }
+    Output out;
 
     // copied from variance.cc
     string showVariance(core::TypeMemberRef tm) {
@@ -250,13 +274,22 @@ private:
         }
     }
 
+    bool shouldSkipMember(core::NameRef name) {
+        if (name.kind() == core::NameKind::UNIQUE) {
+            return true;
+        }
+
+        return name == core::Names::singleton() || name == core::Names::Constants::AttachedClass() ||
+               name == core::Names::attached();
+    }
+
 public:
     RBIExporter(const core::GlobalState &gs) : gs(gs) {}
 
-    vector<core::ClassOrModuleRef> klassesToEmit;
-
     // TODO: Aliases?
     void emit(core::ClassOrModuleRef klass) {
+        cerr << "Emitting " << klass.show(gs) << "\n";
+        vector<core::ClassOrModuleRef> klassesToEmit;
         // Class definition line
         auto defType = klass.data(gs)->isClassOrModuleClass() ? "class" : "module";
         auto fullName = klass.show(gs);
@@ -264,63 +297,30 @@ public:
         if (klass.data(gs)->superClass().exists()) {
             superClassString = absl::StrCat(" < ", klass.data(gs)->superClass().show(gs));
         }
-        emitLine("{} {}{}", defType, fullName, superClassString);
+        out.println("{} {}{}", defType, fullName, superClassString);
 
-        tab();
+        {
+            Indent indent(out);
 
-        // Mixins (include/extend)
-        for (auto mixin : klass.data(gs)->mixins()) {
-            auto isSingleton = mixin.data(gs)->isSingletonClass(gs);
-            auto keyword = isSingleton ? "extend"sv : "include"sv;
-            emitLine("{} {}", keyword, mixin.show(gs));
-        }
-
-        // Members
-        core::MethodRef initializeMethod;
-        vector<core::FieldRef> pendingFields;
-        for (auto &[name, member] : klass.data(gs)->membersStableOrderSlow(gs)) {
-            switch (member.kind()) {
-                case core::SymbolRef::Kind::ClassOrModule: {
-                    // Emit later.
-                    klassesToEmit.emplace_back(member.asClassOrModuleRef());
-                    break;
-                }
-                case core::SymbolRef::Kind::TypeMember: {
-                    emit(member.asTypeMemberRef());
-                    break;
-                }
-                case core::SymbolRef::Kind::TypeArgument: {
-                    ENFORCE(false, "classes should never contain type arguments");
-                    break;
-                }
-                case core::SymbolRef::Kind::Method: {
-                    if (name == core::Names::initialize()) {
-                        // Defer outputting until we gather fields.
-                        initializeMethod = member.asMethodRef();
-                    } else {
-                        emit(member.asMethodRef());
-                    }
-                    break;
-                }
-                case core::SymbolRef::Kind::FieldOrStaticField: {
-                    auto field = member.asFieldRef();
-                    if (field.data(gs)->isField()) {
-                        pendingFields.emplace_back(field);
-                    } else {
-                        emit(field);
-                    }
-                    break;
-                }
+            // Mixins (include/extend)
+            for (auto mixin : klass.data(gs)->mixins()) {
+                auto isSingleton = mixin.data(gs)->isSingletonClass(gs);
+                auto keyword = isSingleton ? "extend"sv : "include"sv;
+                out.println("{} {}", keyword, mixin.show(gs));
             }
-        }
 
-        maybeEmitInitialized(initializeMethod, pendingFields);
+            // Members
+            core::MethodRef initializeMethod;
+            vector<core::FieldRef> pendingFields;
+            for (auto &[name, member] : klass.data(gs)->membersStableOrderSlow(gs)) {
+                if (shouldSkipMember(name)) {
+                    continue;
+                }
 
-        auto singleton = klass.data(gs)->lookupSingletonClass(gs);
-        if (singleton.exists()) {
-            for (auto &[name, member] : singleton.data(gs)->membersStableOrderSlow(gs)) {
                 switch (member.kind()) {
                     case core::SymbolRef::Kind::ClassOrModule: {
+                        // Emit later.
+                        cerr << name.show(gs) << "\n";
                         klassesToEmit.emplace_back(member.asClassOrModuleRef());
                         break;
                     }
@@ -333,7 +333,12 @@ public:
                         break;
                     }
                     case core::SymbolRef::Kind::Method: {
-                        emit(member.asMethodRef());
+                        if (name == core::Names::initialize()) {
+                            // Defer outputting until we gather fields.
+                            initializeMethod = member.asMethodRef();
+                        } else {
+                            emit(member.asMethodRef());
+                        }
                         break;
                     }
                     case core::SymbolRef::Kind::FieldOrStaticField: {
@@ -347,10 +352,53 @@ public:
                     }
                 }
             }
-        }
-        untab();
 
-        fmt::format_to(back_inserter(out), "end\n");
+            maybeEmitInitialized(initializeMethod, pendingFields);
+
+            auto singleton = klass.data(gs)->lookupSingletonClass(gs);
+            if (singleton.exists()) {
+                for (auto &[name, member] : singleton.data(gs)->membersStableOrderSlow(gs)) {
+                    if (shouldSkipMember(name)) {
+                        continue;
+                    }
+
+                    switch (member.kind()) {
+                        case core::SymbolRef::Kind::ClassOrModule: {
+                            cerr << name.show(gs) << "\n";
+                            klassesToEmit.emplace_back(member.asClassOrModuleRef());
+                            break;
+                        }
+                        case core::SymbolRef::Kind::TypeMember: {
+                            emit(member.asTypeMemberRef());
+                            break;
+                        }
+                        case core::SymbolRef::Kind::TypeArgument: {
+                            ENFORCE(false, "classes should never contain type arguments");
+                            break;
+                        }
+                        case core::SymbolRef::Kind::Method: {
+                            emit(member.asMethodRef());
+                            break;
+                        }
+                        case core::SymbolRef::Kind::FieldOrStaticField: {
+                            auto field = member.asFieldRef();
+                            if (field.data(gs)->isField()) {
+                                pendingFields.emplace_back(field);
+                            } else {
+                                emit(field);
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        out.println("end");
+
+        for (auto klassToEmit : klassesToEmit) {
+            emit(klassToEmit);
+        }
     }
 
     void emit(core::MethodRef method) {
@@ -359,9 +407,9 @@ public:
         }
 
         if (method.data(gs)->hasSig()) {
-            emitUnformattedLine(prettySigForMethod(gs, method, nullptr, method.data(gs)->resultType, nullptr));
+            out.println(prettySigForMethod(gs, method, nullptr, method.data(gs)->resultType, nullptr));
         }
-        emitUnformattedLine(prettyDefForMethod(gs, method) + "; end");
+        out.println(prettyDefForMethod(gs, method) + "; end");
     }
 
     void maybeEmitInitialized(core::MethodRef method, const std::vector<core::FieldRef> &fields) {
@@ -371,33 +419,34 @@ public:
         string methodDef;
         if (method.exists()) {
             if (method.data(gs)->hasSig()) {
-                emitUnformattedLine(prettySigForMethod(gs, method, nullptr, method.data(gs)->resultType, nullptr));
+                out.println(prettySigForMethod(gs, method, nullptr, method.data(gs)->resultType, nullptr));
             }
             methodDef = prettyDefForMethod(gs, method);
         } else {
-            emitLine("sig {void}");
+            out.println("sig {void}");
             methodDef = "def initialize";
         }
 
         if (fields.empty()) {
-            emitLine(methodDef + "; end");
+            out.println(methodDef + "; end");
         } else {
-            emitLine(methodDef);
-            tab();
-            for (auto field : fields) {
-                emit(field);
+            out.println(methodDef);
+            {
+                Indent indent(out);
+                for (auto field : fields) {
+                    emit(field);
+                }
             }
-            untab();
-            emitLine("end");
+            out.println("end");
         }
     }
     void emit(core::FieldRef field) {
         if (field.data(gs)->isStaticField()) {
             // Static field
             const auto &resultType = field.data(gs)->resultType;
-            emitLine("{} = {}", field.data(gs)->name.show(gs), typeDeclaration(resultType));
+            out.println("{} = {}", field.data(gs)->name.show(gs), typeDeclaration(resultType));
         } else {
-            emitLine("{} = {}", field.data(gs)->name.show(gs), typeDeclaration(field.data(gs)->resultType));
+            out.println("{} = {}", field.data(gs)->name.show(gs), typeDeclaration(field.data(gs)->resultType));
         }
     }
 
@@ -405,18 +454,18 @@ public:
         if (tm.data(gs)->name == core::Names::Constants::AttachedClass()) {
             return;
         }
-        emitLine("{} = type_member({})", tm.data(gs)->name.show(gs), showVariance(tm));
+        out.println("{} = type_member({})", tm.data(gs)->name.show(gs), showVariance(tm));
     }
 
     string toString() {
-        return fmt::to_string(out);
+        return out.toString();
     }
 };
 } // namespace
 
-string RBIGenerator::run(const core::GlobalState &gs, core::ClassOrModuleRef klass) {
+string RBIGenerator::run(const core::GlobalState &gs, core::ClassOrModuleRef packageNamespace) {
     RBIExporter exporter(gs);
-    exporter.emit(klass);
+    exporter.emit(packageNamespace);
     return exporter.toString();
 }
 } // namespace sorbet::packager
