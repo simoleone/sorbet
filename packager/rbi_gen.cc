@@ -69,7 +69,7 @@ string prettySigForMethod(const core::GlobalState &gs, core::MethodRef method, c
     }
     for (auto targ : method.data(gs)->typeArguments()) {
         auto ta = targ.asTypeArgumentRef();
-        typeArguments.emplace_back(absl::StrCat(ta.data(gs)->name.show(gs)));
+        typeArguments.emplace_back(absl::StrCat(":", ta.data(gs)->name.show(gs)));
     }
     for (auto &argSym : method.data(gs)->arguments()) {
         // Don't display synthetic arguments (like blk).
