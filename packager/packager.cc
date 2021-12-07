@@ -1408,7 +1408,7 @@ ast::ParsedFile rewritePackagedFile(core::Context ctx, ast::ParsedFile parsedFil
         if (auto e = ctx.beginError(core::LocOffsets{0, 0}, core::errors::Packager::UnpackagedFile)) {
             e.setHeader("File `{}` does not belong to a package; add a `{}` file to one "
                         "of its parent directories",
-                        ctx.file.data(ctx).path(), "__package.rb");
+                        ctx.file.data(ctx).path(), PACKAGE_FILE_NAME);
         }
     }
     return parsedFile;
@@ -1434,8 +1434,8 @@ vector<ast::ParsedFile> rewriteFilesFast(core::GlobalState &gs, vector<ast::Pars
     return files;
 }
 
-vector<ast::ParsedFile> Packager::run(core::GlobalState &gs, WorkerPool &workers, vector<ast::ParsedFile> files) {
-    Timer timeit(gs.tracer(), "packager");
+vector<ast::ParsedFile> Packager::findPackages(core::GlobalState &gs, WorkerPool &workers,
+                                               vector<ast::ParsedFile> files) {
     // Ensure files are in canonical order.
     fast_sort(files, [](const auto &a, const auto &b) -> bool { return a.file < b.file; });
 
@@ -1468,6 +1468,14 @@ vector<ast::ParsedFile> Packager::run(core::GlobalState &gs, WorkerPool &workers
             }
         }
     }
+
+    return files;
+}
+
+vector<ast::ParsedFile> Packager::run(core::GlobalState &gs, WorkerPool &workers, vector<ast::ParsedFile> files) {
+    Timer timeit(gs.tracer(), "packager");
+
+    files = findPackages(gs, workers, std::move(files));
 
     // Step 2:
     // * Find package files and rewrite them into virtual AST mappings.
