@@ -433,7 +433,7 @@ buildOptions(const vector<pipeline::semantic_extension::SemanticExtensionProvide
                                "Errors not mentioned will be silenced. "
                                "This option can be passed multiple times.",
                                cxxopts::value<vector<int>>(), "errorCode");
-    options.add_options("dev")("serialize-class", "Serialize the given class name.",
+    options.add_options("dev")("package-rbi-output", "Serialize package RBIs to folder.",
                                cxxopts::value<string>()->default_value(""));
     options.add_options("dev")("suppress-error-code",
                                "Error code to exclude from reporting. "
@@ -908,7 +908,7 @@ void readOptions(Options &opts,
             }
         }
 
-        opts.serializeClass = raw["serialize-class"].as<string>();
+        opts.packageRBIOutput = raw["package-rbi-output"].as<string>();
 
         extractAutoloaderConfig(raw, opts, logger);
         opts.errorUrlBase = raw["error-url-base"].as<string>();

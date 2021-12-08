@@ -9,7 +9,8 @@ namespace sorbet::packager {
  */
 class RBIGenerator final {
 public:
-    static std::string run(const core::GlobalState &gs, core::ClassOrModuleRef packageNamespace);
+    static void run(core::GlobalState &gs, std::vector<ast::ParsedFile> packageFiles, std::string outputDir,
+                    WorkerPool &workers);
 };
 } // namespace sorbet::packager
 

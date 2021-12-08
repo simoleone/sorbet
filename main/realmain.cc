@@ -750,26 +750,32 @@ int realmain(int argc, char *argv[]) {
         }
     }
 
-    if (!opts.serializeClass.empty()) {
-        auto components = absl::StrSplit(opts.serializeClass, "::");
-        core::ClassOrModuleRef klass = core::Symbols::root();
-        bool found = true;
-        for (auto &component : components) {
-            auto name = gs->lookupNameConstant(component);
-            if (!name.exists()) {
-                found = false;
-                break;
-            }
-            auto member = klass.data(*gs)->findMember(*gs, name);
-            if (!member.exists() || !member.isClassOrModule()) {
-                found = false;
-                break;
-            }
-            klass = member.asClassOrModuleRef();
+    if (!opts.packageRBIOutput.empty()) {
+        if (opts.stripePackages) {
+            logger->error("Cannot serialize package RBIs in legacy stripe packages mode.");
+            return 1;
         }
 
-        if (found) {
-            opts.fs->writeFile("out.rbi", packager::RBIGenerator::run(*gs, klass));
+        if (opts.rawInputDirNames.size() != 1) {
+            logger->error("Serializing package RBIs requires one input folder.");
+            return 1;
+        }
+
+        auto relativeIgnorePatterns = opts.relativeIgnorePatterns;
+        auto it = find(relativeIgnorePatterns.begin(), relativeIgnorePatterns.end(), "__package.rb");
+        if (it != relativeIgnorePatterns.end()) {
+            relativeIgnorePatterns.erase(it);
+        }
+        auto packageFiles = opts.fs->listFilesInDir(opts.rawInputDirNames[0], opts.allowedExtensions, true,
+                                                    opts.absoluteIgnorePatterns, relativeIgnorePatterns);
+        packageFiles.erase(remove_if(packageFiles.begin(), packageFiles.end(), [](const auto &packageFile) {
+            return !absl::EndsWith(packageFile, "__package.rb");
+        }));
+
+        if (!packageFiles.empty()) {
+            auto packageFileRefs = pipeline::reserveFiles(gs, packageFiles);
+            auto packages = pipeline::index(gs, packageFileRefs, opts, *workers, nullptr);
+            packager::RBIGenerator::run(*gs, packages, opts.packageRBIOutput, *workers);
         }
     }
 

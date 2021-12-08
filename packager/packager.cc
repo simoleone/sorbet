@@ -191,7 +191,7 @@ public:
     vector<Import> importedPackageNames;
     // List of exported items that form the body of this package's public API.
     // These are copied into every package that imports this package.
-    vector<Export> exports;
+    vector<Export> exports_;
 
     // PackageInfoImpl is the only implementation of PackageInfoImpl
     const static PackageInfoImpl &from(const sorbet::core::packages::PackageInfo &pkg) {
@@ -286,8 +286,8 @@ public:
             // either before the first export, or if we have no
             // exports, then right before the final `end`
             uint32_t exportLoc;
-            if (!exports.empty()) {
-                exportLoc = exports.front().fqn.loc.beginPos() - "export "sv.size() - 1;
+            if (!exports_.empty()) {
+                exportLoc = exports_.front().fqn.loc.beginPos() - "export "sv.size() - 1;
             } else {
                 exportLoc = loc.endPos() - "end"sv.size() - 1;
             }
@@ -319,8 +319,8 @@ public:
                                                     bool isPrivateTestExport) const {
         auto insertionLoc = core::Loc::none(loc.file());
         // first let's try adding it to the end of the imports.
-        if (!exports.empty()) {
-            auto lastOffset = exports.back().fqn.loc;
+        if (!exports_.empty()) {
+            auto lastOffset = exports_.back().fqn.loc;
             insertionLoc = {loc.file(), lastOffset.endPos(), lastOffset.endPos()};
         } else {
             // if we don't have any imports, then we can try adding it
@@ -349,6 +349,43 @@ public:
             fmt::format("Export `{}` in package `{}`", strName, name.toString(gs)),
             {{insertionLoc, fmt::format("\n  {} {}", isPrivateTestExport ? "export_for_test" : "export", strName)}});
         return {suggestion};
+    }
+
+    vector<vector<core::NameRef>> exports() const {
+        vector<vector<core::NameRef>> rv;
+        for (auto &e : exports_) {
+            if (e.type == ExportType::Public) {
+                rv.emplace_back(e.fqn.parts);
+            }
+        }
+        return rv;
+    }
+    vector<vector<core::NameRef>> testExports() const {
+        vector<vector<core::NameRef>> rv;
+        for (auto &e : exports_) {
+            if (e.type == ExportType::PrivateTest) {
+                rv.emplace_back(e.fqn.parts);
+            }
+        }
+        return rv;
+    }
+    vector<vector<core::NameRef>> imports() const {
+        vector<vector<core::NameRef>> rv;
+        for (auto &i : importedPackageNames) {
+            if (i.type == ImportType::Normal) {
+                rv.emplace_back(i.name.fullName.parts);
+            }
+        }
+        return rv;
+    }
+    vector<vector<core::NameRef>> testImports() const {
+        vector<vector<core::NameRef>> rv;
+        for (auto &i : importedPackageNames) {
+            if (i.type == ImportType::Test) {
+                rv.emplace_back(i.name.fullName.parts);
+            }
+        }
+        return rv;
     }
 
 private:
@@ -773,8 +810,8 @@ struct PackageInfoFinder {
             }
         }
 
-        ENFORCE(info->exports.empty());
-        std::swap(exported, info->exports);
+        ENFORCE(info->exports_.empty());
+        std::swap(exported, info->exports_);
     }
 
     bool allowedExportPrefix(core::Context ctx, const Export &shorter, const Export &longer) {
@@ -1044,7 +1081,7 @@ public:
     // Add the exports of a package as "friend-imports" into the import tree. These are used for building the package's
     // Test, Public and PublicTest modules.
     void mergePublicInterface(core::Context ctx, const PackageInfoImpl &pkg, ExportType type) {
-        for (const auto &exp : pkg.exports) {
+        for (const auto &exp : pkg.exports_) {
             if (exp.type != type) {
                 continue;
             }
@@ -1075,7 +1112,7 @@ private:
     // Enumerate and add all exported names from an imported package into the import tree
     void mergeAllExportsFromImportedPackage(core::Context ctx, const PackageInfoImpl &importedPackage,
                                             const Import &import) {
-        for (const auto &exp : importedPackage.exports) {
+        for (const auto &exp : importedPackage.exports_) {
             if (exp.type == ExportType::Public) {
                 addImport(ctx, importedPackage, import.name.loc, exp.fqn, import.type, true);
             }
@@ -1085,10 +1122,10 @@ private:
     // Add the entire top-level exported namespaces of an imported package into the import tree
     void mergeTopLevelExportFromImportedPackage(core::Context ctx, const PackageInfoImpl &importedPackage,
                                                 const Import &import) {
-        const bool exportsTestConstant = absl::c_any_of(importedPackage.exports, [&](const auto &exp) -> bool {
+        const bool exportsTestConstant = absl::c_any_of(importedPackage.exports_, [&](const auto &exp) -> bool {
             return exp.type == ExportType::Public && isPrimaryTestNamespace(exp.fqn.parts[0]);
         });
-        const bool exportsRealConstant = absl::c_any_of(importedPackage.exports, [&](const auto &exp) -> bool {
+        const bool exportsRealConstant = absl::c_any_of(importedPackage.exports_, [&](const auto &exp) -> bool {
             return exp.type == ExportType::Public && !isPrimaryTestNamespace(exp.fqn.parts[0]);
         });
 

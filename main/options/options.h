@@ -201,7 +201,7 @@ struct Options {
     std::string metricsSha = "none";
     std::map<std::string, std::string> metricsExtraTags; // be super careful with cardinality here
 
-    std::string serializeClass = "";
+    std::string packageRBIOutput = "";
 
     // Contains the allowed extensions Sorbet can parse.
     UnorderedSet<std::string> allowedExtensions;

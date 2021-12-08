@@ -1,5 +1,10 @@
 #include "packager/rbi_gen.h"
+#include "absl/synchronization/blocking_counter.h"
+#include "common/FileOps.h"
+#include "common/concurrency/ConcurrentQueue.h"
 #include "core/GlobalState.h"
+#include "main/pipeline/pipeline.h"
+#include "packager/packager.h"
 
 using namespace std;
 namespace sorbet::packager {
@@ -61,6 +66,7 @@ public:
 };
 
 // TODO: copied from lsp_helpers.cc. Move to a common utils package.
+// TODO: Respect indentation.
 core::TypePtr getResultType(const core::GlobalState &gs, const core::TypePtr &type, core::SymbolRef inWhat,
                             core::TypePtr receiver, const core::TypeConstraint *constr) {
     auto resultType = type;
@@ -242,10 +248,24 @@ string prettyDefForMethod(const core::GlobalState &gs, core::MethodRef method) {
     return result;
 }
 
-// TODO: Share with minimizer.cc.
+core::ClassOrModuleRef lookupFQN(const core::GlobalState &gs, const vector<core::NameRef> &fqn) {
+    core::ClassOrModuleRef scope = core::Symbols::root();
+    for (auto name : fqn) {
+        auto result = scope.data(gs)->findMember(gs, name);
+        if (!result.exists() || !result.isClassOrModule()) {
+            return core::Symbols::noClassOrModule();
+        }
+        scope = result.asClassOrModuleRef();
+    }
+    return scope;
+}
+
 class RBIExporter final {
 private:
     const core::GlobalState &gs;
+    const core::packages::PackageInfo &pkg;
+    const core::ClassOrModuleRef pkgNamespace;
+    const UnorderedSet<core::ClassOrModuleRef> &pkgNamespaces;
     Output out;
 
     // copied from variance.cc
@@ -283,11 +303,12 @@ private:
                name == core::Names::attached();
     }
 
-public:
-    RBIExporter(const core::GlobalState &gs) : gs(gs) {}
-
-    // TODO: Aliases?
     void emit(core::ClassOrModuleRef klass) {
+        if (pkgNamespaces.contains(klass) && klass != pkgNamespace) {
+            // We don't emit class definitions for items defined in other packages.
+            return;
+        }
+
         cerr << "Emitting " << klass.show(gs) << "\n";
         vector<core::ClassOrModuleRef> klassesToEmit;
         // Class definition line
@@ -457,15 +478,54 @@ public:
         out.println("{} = type_member({})", tm.data(gs)->name.show(gs), showVariance(tm));
     }
 
+public:
+    RBIExporter(const core::GlobalState &gs, const core::packages::PackageInfo &pkg,
+                const UnorderedSet<core::ClassOrModuleRef> &pkgNamespaces)
+        : gs(gs), pkg(pkg), pkgNamespace(lookupFQN(gs, pkg.fullName())), pkgNamespaces(pkgNamespaces) {}
+
+    void emit() {}
+
     string toString() {
         return out.toString();
     }
 };
 } // namespace
 
-string RBIGenerator::run(const core::GlobalState &gs, core::ClassOrModuleRef packageNamespace) {
-    RBIExporter exporter(gs);
-    exporter.emit(packageNamespace);
-    return exporter.toString();
+void RBIGenerator::run(core::GlobalState &gs, vector<ast::ParsedFile> packageFiles, string outputDir,
+                       WorkerPool &workers) {
+    absl::BlockingCounter threadBarrier(std::max(workers.size(), 1));
+    // Populate package database.
+    Packager::findPackages(gs, workers, move(packageFiles));
+
+    const auto &packageDB = gs.packageDB();
+
+    auto &packages = packageDB.packages();
+    auto inputq = make_shared<ConcurrentBoundedQueue<core::NameRef>>(packages.size());
+
+    UnorderedSet<core::ClassOrModuleRef> packageNamespaces;
+    for (auto package : packages) {
+        auto &pkg = gs.packageDB().getPackageInfo(package);
+        auto packageNamespace = lookupFQN(gs, pkg.fullName());
+        ENFORCE(packageNamespace.exists());
+        packageNamespaces.insert(packageNamespace);
+        inputq->push(move(package), 1);
+    }
+
+    const core::GlobalState &rogs = gs;
+    workers.multiplexJob("RBIGenerator", [inputq, outputDir, &threadBarrier, &rogs, &packageNamespaces]() {
+        core::NameRef job;
+        for (auto result = inputq->try_pop(job); !result.done(); result = inputq->try_pop(job)) {
+            auto &pkg = rogs.packageDB().getPackageInfo(job);
+            ENFORCE(pkg.exists());
+            auto outputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(rogs), ".rbi");
+            RBIExporter exporter(rogs, pkg, packageNamespaces);
+
+            // TODO: Test package RBIs.
+            FileOps::write(outputFile, exporter.toString());
+        }
+        threadBarrier.DecrementCount();
+    });
+    // Wait for threads to complete destructing the trees.
+    threadBarrier.Wait();
 }
 } // namespace sorbet::packager
