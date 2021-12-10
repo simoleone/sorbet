@@ -514,11 +514,13 @@ int yylex(parser::semantic_type *lval, ruby_parser::typedruby27 &driver) {
                       $1->emplace_back($3);
                       $$ = $1;
                     }
-                // | error top_stmt
-                //     {
-                //       // TODO(jez) error token here
-                //       $$ = driver.alloc.node_list($2);
-                //     }
+                | error top_stmt
+                    {
+                      // TODO(jez) This currently doesn't cause conflicts, but
+                      // if you ever do get weird conflicts, try commenting
+                      // this one out.
+                      $$ = driver.alloc.node_list($2);
+                    }
 
         top_stmt: stmt
                 | klBEGIN begin_block
@@ -577,7 +579,7 @@ int yylex(parser::semantic_type *lval, ruby_parser::typedruby27 &driver) {
                     }
                 // | error
                 //     {
-                //       // TODO(jez) error token here
+                //       // TODO(jez) This is commented out because it causes giga conflicts
                 //       $$ = driver.alloc.node_list();
                 //     }
 
