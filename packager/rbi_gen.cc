@@ -285,6 +285,16 @@ private:
         }
     }
 
+    bool isInPackage(core::ClassOrModuleRef klass) {
+        if (klass == pkgNamespace) {
+            return true;
+        }
+        if (pkgNamespaces.contains(klass)) {
+            return false;
+        }
+        return isInPackage(klass.data(gs)->owner.asClassOrModuleRef());
+    }
+
     string typeDeclaration(const core::TypePtr &type) {
         if (core::isa_type<core::AliasType>(type)) {
             auto alias = core::cast_type_nonnull<core::AliasType>(type);
@@ -483,7 +493,15 @@ public:
                 const UnorderedSet<core::ClassOrModuleRef> &pkgNamespaces)
         : gs(gs), pkg(pkg), pkgNamespace(lookupFQN(gs, pkg.fullName())), pkgNamespaces(pkgNamespaces) {}
 
-    void emit() {}
+    void emit() {
+        for (auto &e : pkg.exports()) {
+            auto exportSymbol = lookupFQN(gs, e);
+            if (exportSymbol.exists()) {
+                emit(exportSymbol);
+            }
+            // TODO: Emit an error if it doesn't exist?
+        }
+    }
 
     string toString() {
         return out.toString();
