@@ -120,8 +120,12 @@ public:
 
     core::LocOffsets collectionLoc(const token *begin, sorbet::parser::NodeVec &elts, const token *end) {
         if (begin != nullptr) {
-            ENFORCE(end != nullptr);
-            return tokLoc(begin, end);
+            if (end == nullptr) {
+                // implies that there was a parse error
+                return tokLoc(begin);
+            } else {
+                return tokLoc(begin, end);
+            }
         }
         ENFORCE(end == nullptr);
         if (elts.empty()) {
@@ -563,6 +567,20 @@ public:
         }
     }
 
+    unique_ptr<Node> call_method_error(unique_ptr<Node> receiver, const token *dot) {
+        auto loc = receiver->loc;
+        if (dot != nullptr) {
+            loc = loc.join(tokLoc(dot));
+        }
+
+        auto method = core::Names::methodNameMissing();
+        if ((dot != nullptr) && dot->string() == "&.") {
+            return make_unique<CSend>(loc, std::move(receiver), method, sorbet::parser::NodeVec{});
+        } else {
+            return make_unique<Send>(loc, std::move(receiver), method, sorbet::parser::NodeVec{});
+        }
+    }
+
     unique_ptr<Node> case_(const token *case_, unique_ptr<Node> expr, sorbet::parser::NodeVec whenBodies,
                            const token *elseTok, unique_ptr<Node> elseBody, const token *end) {
         return make_unique<Case>(tokLoc(case_).join(tokLoc(end)), std::move(expr), std::move(whenBodies),
@@ -715,7 +733,7 @@ public:
     unique_ptr<Node> def_class(const token *class_, unique_ptr<Node> name, const token *lt_,
                                unique_ptr<Node> superclass, unique_ptr<Node> body, const token *end_) {
         core::LocOffsets declLoc = tokLoc(class_).join(maybe_loc(name)).join(maybe_loc(superclass));
-        core::LocOffsets loc = tokLoc(class_, end_);
+        core::LocOffsets loc = end_ != nullptr ? tokLoc(class_, end_) : tokLoc(class_).join(body->loc);
 
         return make_unique<Class>(loc, declLoc, std::move(name), std::move(superclass), std::move(body));
     }
@@ -1782,6 +1800,11 @@ ForeignPtr call_method(SelfPtr builder, ForeignPtr receiver, const token *dot, c
         build->call_method(build->cast_node(receiver), dot, selector, lparen, build->convertNodeList(args), rparen));
 }
 
+ForeignPtr call_method_error(SelfPtr builder, ForeignPtr receiver, const token *dot) {
+    auto build = cast_builder(builder);
+    return build->toForeign(build->call_method_error(build->cast_node(receiver), dot));
+}
+
 ForeignPtr case_(SelfPtr builder, const token *case_, ForeignPtr expr, const node_list *whenBodies,
                  const token *elseTok, ForeignPtr elseBody, const token *end) {
     auto build = cast_builder(builder);
@@ -2439,6 +2462,7 @@ struct ruby_parser::builder Builder::interface = {
     blockarg,
     callLambda,
     call_method,
+    call_method_error,
     case_,
     case_match,
     character,

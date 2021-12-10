@@ -55,6 +55,7 @@ NameDef names[] = {
     {"defined_p", "defined?"},
     {"undef"},
     {"each"},
+    {"methodNameMissing", "<method-name-missing>"},
 
     // used in CFG for temporaries
     {"whileTemp", "<whileTemp>"},

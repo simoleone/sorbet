@@ -77,6 +77,17 @@ struct node_with_token {
     ForeignPtr nod = nullptr;
 };
 
+struct class_def_header {
+    class_def_header() = default;
+    class_def_header(const token_t &class_, ForeignPtr cpath, const token_t &lt, ForeignPtr superclass)
+        : class_(class_), cpath(cpath), lt(lt), superclass(superclass) {}
+
+    token_t class_ = nullptr;
+    ForeignPtr cpath = nullptr;
+    token_t lt = nullptr;
+    ForeignPtr superclass = nullptr;
+};
+
 struct case_body {
     case_body() = default;
     case_body(node_with_token *else_) : els(else_) {}
@@ -91,6 +102,7 @@ class mempool {
     pool<ruby_parser::node_with_token, 32> _node_with_token;
     pool<ruby_parser::case_body, 32> _case_body;
     pool<ruby_parser::state_stack, 8> _stacks;
+    pool<ruby_parser::class_def_header, 8> _class_def_header;
     friend class base_driver;
 
 public:
@@ -114,6 +126,10 @@ public:
 
     template <typename... Args> ruby_parser::case_body *case_body(Args &&...args) {
         return _case_body.alloc(std::forward<Args>(args)...);
+    }
+
+    template <typename... Args> ruby_parser::class_def_header *class_def_header(Args &&...args) {
+        return _class_def_header.alloc(std::forward<Args>(args)...);
     }
 };
 

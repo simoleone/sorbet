@@ -392,6 +392,9 @@ using namespace std::string_literals;
   superclass
   expr_value_do
 
+%type <class_def_header>
+  class_def_header
+
 %type <case_body>
   case_body
   cases
@@ -429,6 +432,7 @@ union parser_value {
   ruby_parser::delimited_block *delimited_block;
   ruby_parser::node_with_token *with_token;
   ruby_parser::case_body *case_body;
+  ruby_parser::class_def_header *class_def_header;
   ruby_parser::ForeignPtr node;
   ruby_parser::node_list *list;
   ruby_parser::state_stack *stack;
@@ -510,10 +514,11 @@ int yylex(parser::semantic_type *lval, ruby_parser::typedruby27 &driver) {
                       $1->emplace_back($3);
                       $$ = $1;
                     }
-                | error top_stmt
-                    {
-                      $$ = driver.alloc.node_list($2);
-                    }
+                // | error top_stmt
+                //     {
+                //       // TODO(jez) error token here
+                //       $$ = driver.alloc.node_list($2);
+                //     }
 
         top_stmt: stmt
                 | klBEGIN begin_block
@@ -570,10 +575,11 @@ int yylex(parser::semantic_type *lval, ruby_parser::typedruby27 &driver) {
                       $1->emplace_back($3);
                       $$ = $1;
                     }
-                | error
-                    {
-                      $$ = driver.alloc.node_list();
-                    }
+                // | error
+                //     {
+                //       // TODO(jez) error token here
+                //       $$ = driver.alloc.node_list();
+                //     }
 
    stmt_or_begin: stmt
                 | klBEGIN begin_block
@@ -1724,28 +1730,38 @@ int yylex(parser::semantic_type *lval, ruby_parser::typedruby27 &driver) {
                     {
                       $$ = driver.build.for_(self, $1, $2, $3, $4->nod, $4->tok, $5, $6);
                     }
-                | kCLASS cpath superclass
+                | class_def_header bodystmt kEND
                     {
-                      driver.lex.extend_static();
-                      driver.lex.cmdarg.push(false);
-                      driver.lex.cond.push(false);
-                      driver.lex.context.push(Context::State::CLASS);
-                    }
-                    bodystmt kEND
-                    {
+                      auto class_tok = $1->class_;
                       if (!driver.lex.context.classDefintinionAllowed()) {
-                        driver.diagnostics.emplace_back(dlevel::ERROR, dclass::ClassInDef, $1);
+                        driver.diagnostics.emplace_back(dlevel::ERROR, dclass::ClassInDef, class_tok);
                         YYERROR;
                       }
 
-                      auto class_tok = $1;
-                      auto end_tok = $6;
+                      auto end_tok = $3;
 
-                      auto &superclass_ = $3;
-                      auto lt_t       = superclass_ ? superclass_->tok : nullptr;
-                      auto superclass = superclass_ ? superclass_->nod : nullptr;
+                      auto lt_t       = $1->lt;
+                      auto superclass = $1->superclass;
 
-                      $$ = driver.build.def_class(self, class_tok, $2, lt_t, superclass, $5, end_tok);
+                      $$ = driver.build.def_class(self, class_tok, $1->cpath, lt_t, superclass, $2, end_tok);
+
+                      driver.lex.cmdarg.pop();
+                      driver.lex.cond.pop();
+                      driver.lex.unextend();
+                      driver.lex.context.pop();
+                    }
+                | class_def_header bodystmt error
+                    {
+                      auto class_tok = $1->class_;
+                      if (!driver.lex.context.classDefintinionAllowed()) {
+                        driver.diagnostics.emplace_back(dlevel::ERROR, dclass::ClassInDef, class_tok);
+                        YYERROR;
+                      }
+
+                      auto lt_t       = $1->lt;
+                      auto superclass = $1->superclass;
+
+                      $$ = driver.build.def_class(self, class_tok, $1->cpath, lt_t, superclass, $2, nullptr);
 
                       driver.lex.cmdarg.pop();
                       driver.lex.cond.pop();
@@ -1800,8 +1816,21 @@ int yylex(parser::semantic_type *lval, ruby_parser::typedruby27 &driver) {
                       driver.lex.context.pop();
                       driver.current_arg_stack.pop();
                     }
+                | defn_head f_arglist bodystmt error
+                    {
+                      // TODO(jez) Repeat this for all rules that end with kEND
+                      // TODO(jez) $4 is end token, but we're passing the kDEF of the next method (wrong)
+                      $$ = driver.build.defMethod(self, $1->begin, $1->end, $2, $3, $1->end);
+
+                      driver.lex.cmdarg.pop();
+                      driver.lex.cond.pop();
+                      driver.lex.unextend();
+                      driver.lex.context.pop();
+                      driver.current_arg_stack.pop();
+                    }
                 | defs_head f_arglist bodystmt kEND
                     {
+                      // TODO(jez) this too
                       $$ = driver.build.defSingleton(self, $1, $2, $3, $4);
                       DIAGCHECK();
 
@@ -1828,6 +1857,17 @@ int yylex(parser::semantic_type *lval, ruby_parser::typedruby27 &driver) {
                       $$ = driver.build.keywordRetry(self, $1);
                     }
 
+class_def_header: kCLASS cpath superclass
+                    {
+                      driver.lex.extend_static();
+                      driver.lex.cmdarg.push(false);
+                      driver.lex.cond.push(false);
+                      driver.lex.context.push(Context::State::CLASS);
+
+                      auto lt = $3 ? $3->tok : nullptr;
+                      auto superclass = $3 ? $3->nod : nullptr;
+                      $$ = driver.alloc.class_def_header($1, $2, lt, superclass);
+                    }
    primary_value: primary
 
         k_return: kRETURN
@@ -2258,6 +2298,10 @@ opt_block_args_tail:
                           delimited->begin,
                           delimited->inner,
                           delimited->end);
+                    }
+                | primary_value call_op error
+                    {
+                      $$ = driver.build.call_method_error(self, $1, $2);
                     }
                 | primary_value tCOLON2 operation2 paren_args
                     {
@@ -3185,6 +3229,11 @@ f_opt_paren_args: f_paren_args
                       driver.lex.set_state_expr_value();
                       $$ = driver.build.args(self, $1, $2, $3, true);
                     }
+                | tLPAREN2 f_args error
+                    {
+                      driver.lex.set_state_expr_value();
+                      $$ = driver.build.args(self, $1, $2, nullptr, true);
+                    }
                 | tLPAREN2 f_arg tCOMMA args_forward rparen
                     {
                       driver.lex.declare_forward_args();
@@ -3241,6 +3290,10 @@ f_opt_paren_args: f_paren_args
                     {
                       $$ = $1;
                     }
+                // | error
+                //     {
+                //       $$ = driver.alloc.node_list();
+                //     }
 
    opt_args_tail: tCOMMA args_tail
                     {
