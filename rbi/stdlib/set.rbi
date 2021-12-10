@@ -289,7 +289,7 @@ class Set < Object
   # Alias for: [`&`](https://docs.ruby-lang.org/en/2.7.0/Set.html#method-i-26)
   sig do
     params(
-        enum: T::Enumerable[Elem],
+        enum: T::Enumerable[BasicObject],
     )
     .returns(T::Set[Elem])
   end
@@ -501,7 +501,7 @@ class Set < Object
   # [`intersection`](https://docs.ruby-lang.org/en/2.7.0/Set.html#method-i-intersection)
   sig do
     params(
-        enum: T::Enumerable[Elem],
+        enum: T::Enumerable[BasicObject],
     )
     .returns(T::Set[Elem])
   end
