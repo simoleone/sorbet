@@ -461,7 +461,7 @@ class Set < Object
   # returns self.
   sig do
     params(
-        enum: T::Enumerable[Elem],
+        enum: T::Enumerable[BasicObject],
     )
     .returns(T.self_type)
   end
@@ -520,7 +520,7 @@ class Set < Object
   # [`difference`](https://docs.ruby-lang.org/en/2.7.0/Set.html#method-i-difference)
   sig do
     params(
-        enum: T::Enumerable[Elem],
+        enum: T::Enumerable[BasicObject],
     )
     .returns(T::Set[Elem])
   end
