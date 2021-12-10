@@ -384,7 +384,7 @@ class Array < Object
   # [`Array#uniq`](https://docs.ruby-lang.org/en/2.7.0/Array.html#method-i-uniq).
   sig do
     params(
-        arg0: T::Array[Elem],
+        arg0: T::Array[BasicObject],
     )
     .returns(T::Array[Elem])
   end
