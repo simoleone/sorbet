@@ -1697,14 +1697,6 @@ class Array < Object
   sig {returns(T::Enumerator[Elem])}
   def map!(&blk); end
 
-  sig do
-    params(
-        arg0: Elem,
-    )
-    .returns(T::Boolean)
-  end
-  def member?(arg0); end
-
   # Returns a two element array which contains the minimum and the maximum value
   # in the array.
   #
