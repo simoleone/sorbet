@@ -215,7 +215,7 @@ class Set < Object
   # Alias for: [`-`](https://docs.ruby-lang.org/en/2.7.0/Set.html#method-i-2D)
   sig do
     params(
-        enum: T::Enumerable[Elem],
+        enum: T::Enumerable[BasicObject],
     )
     .returns(T::Set[Elem])
   end
