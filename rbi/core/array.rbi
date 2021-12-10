@@ -1558,7 +1558,7 @@ class Array < Object
   # See also Array#&.
   sig do
     params(
-      arrays: T::Array[T.untyped]
+      arrays: T::Array[BasicObject]
     )
     .returns(T::Array[Elem])
   end
