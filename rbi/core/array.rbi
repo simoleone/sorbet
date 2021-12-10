@@ -484,7 +484,7 @@ class Array < Object
   # [`Array#difference`](https://docs.ruby-lang.org/en/2.7.0/Array.html#method-i-difference).
   sig do
     params(
-        arg0: T::Array[T.untyped],
+        arg0: T::Array[BasicObject],
     )
     .returns(T::Array[Elem])
   end
@@ -1097,7 +1097,7 @@ class Array < Object
   # [`Array#-`](https://docs.ruby-lang.org/en/2.7.0/Array.html#method-i-2D).
   sig do
     params(
-        arrays: T::Array[T.untyped]
+        arrays: T::Array[BasicObject]
     )
     .returns(T::Array[Elem])
   end
