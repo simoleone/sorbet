@@ -1,4 +1,6 @@
-Begin {
-  stmts = [
+Send {
+  receiver = NULL
+  method = <U b>
+  args = [
   ]
 }
