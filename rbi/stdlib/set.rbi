@@ -342,7 +342,7 @@ class Set < Object
   # [`include?`](https://docs.ruby-lang.org/en/2.7.0/Set.html#method-i-include-3F)
   sig do
     params(
-        o: Elem,
+        o: BasicObject,
     )
     .returns(T::Boolean)
   end
@@ -602,7 +602,7 @@ class Set < Object
   # [`===`](https://docs.ruby-lang.org/en/2.7.0/Set.html#method-i-3D-3D-3D)
   sig do
     params(
-        o: Elem,
+        o: BasicObject,
     )
     .returns(T::Boolean)
   end
