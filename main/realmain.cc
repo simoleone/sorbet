@@ -762,9 +762,11 @@ int realmain(int argc, char *argv[]) {
         }
 
         auto relativeIgnorePatterns = opts.relativeIgnorePatterns;
-        auto it = find(relativeIgnorePatterns.begin(), relativeIgnorePatterns.end(), "__package.rb");
+        auto it = find(relativeIgnorePatterns.begin(), relativeIgnorePatterns.end(), "/__package.rb");
         if (it != relativeIgnorePatterns.end()) {
             relativeIgnorePatterns.erase(it);
+        } else {
+            Exception::raise("Couldn't find ignore pattern.");
         }
         auto packageFiles = opts.fs->listFilesInDir(opts.rawInputDirNames[0], opts.allowedExtensions, true,
                                                     opts.absoluteIgnorePatterns, relativeIgnorePatterns);
