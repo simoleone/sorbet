@@ -2,8 +2,8 @@
 #include "absl/synchronization/blocking_counter.h"
 #include "common/FileOps.h"
 #include "common/concurrency/ConcurrentQueue.h"
+#include "common/concurrency/WorkerPool.h"
 #include "core/GlobalState.h"
-#include "main/pipeline/pipeline.h"
 #include "packager/packager.h"
 
 using namespace std;
@@ -99,7 +99,7 @@ constexpr int MAX_PRETTY_WIDTH = 80;
 string prettySigForMethod(const core::GlobalState &gs, core::MethodRef method, const core::TypePtr &receiver,
                           core::TypePtr retType, const core::TypeConstraint *constraint) {
     ENFORCE(method.exists());
-    ENFORCE(method.data(gs)->dealias(gs) == method);
+    ENFORCE(method.data(gs)->dealiasMethod(gs) == method);
     // handle this case anyways so that we don't crash in prod when this method is mis-used
     if (!method.exists()) {
         return "";
@@ -116,23 +116,22 @@ string prettySigForMethod(const core::GlobalState &gs, core::MethodRef method, c
     vector<string> flags;
     auto sym = method.data(gs);
     string sigCall = "sig";
-    if (sym->isFinalMethod()) {
+    if (sym->flags.isFinal) {
         sigCall = "sig(:final)";
     }
-    if (sym->isAbstract()) {
+    if (sym->flags.isAbstract) {
         flags.emplace_back("abstract");
     }
-    if (sym->isOverridable()) {
+    if (sym->flags.isOverridable) {
         flags.emplace_back("overridable");
     }
-    if (sym->isOverride()) {
+    if (sym->flags.isOverride) {
         flags.emplace_back("override");
     }
-    for (auto targ : method.data(gs)->typeArguments()) {
-        auto ta = targ.asTypeArgumentRef();
+    for (auto ta : method.data(gs)->typeArguments) {
         typeArguments.emplace_back(absl::StrCat(":", ta.data(gs)->name.show(gs)));
     }
-    for (auto &argSym : method.data(gs)->arguments()) {
+    for (auto &argSym : method.data(gs)->arguments) {
         // Don't display synthetic arguments (like blk).
         if (!argSym.isSyntheticBlockArgument()) {
             typeAndArgNames.emplace_back(absl::StrCat(
@@ -180,9 +179,9 @@ string prettyDefForMethod(const core::GlobalState &gs, core::MethodRef method) {
     auto methodData = method.data(gs);
 
     string visibility = "";
-    if (methodData->isMethodPrivate()) {
+    if (methodData->flags.isPrivate) {
         visibility = "private ";
-    } else if (methodData->isMethodProtected()) {
+    } else if (methodData->flags.isProtected) {
         visibility = "protected ";
     }
 
@@ -193,12 +192,11 @@ string prettyDefForMethod(const core::GlobalState &gs, core::MethodRef method) {
         methodName = methodNameRef.toString(gs);
     }
     string methodNamePrefix = "";
-    if (methodData->owner.exists() && methodData->owner.isClassOrModule() &&
-        methodData->owner.asClassOrModuleRef().data(gs)->attachedClass(gs).exists()) {
+    if (methodData->owner.exists() && methodData->owner.data(gs)->attachedClass(gs).exists()) {
         methodNamePrefix = "self.";
     }
     vector<string> prettyArgs;
-    const auto &arguments = methodData->dealias(gs).asMethodRef().data(gs)->arguments();
+    const auto &arguments = methodData->dealiasMethod(gs).data(gs)->arguments;
     ENFORCE(!arguments.empty(), "Should have at least a block arg");
     for (const auto &argSym : arguments) {
         // Don't display synthetic arguments (like blk).
@@ -266,6 +264,107 @@ private:
     const core::packages::PackageInfo &pkg;
     const core::ClassOrModuleRef pkgNamespace;
     const UnorderedSet<core::ClassOrModuleRef> &pkgNamespaces;
+    UnorderedSet<core::SymbolRef> emittedSymbols;
+    vector<core::SymbolRef> toEmit;
+    void maybeEmit(core::SymbolRef symbol) {
+        if (!emittedSymbols.contains(symbol) && isInPackage(symbol)) {
+            toEmit.emplace_back(symbol);
+        }
+    }
+
+    void enqueueSymbolsInType(const core::TypePtr &type) {
+        switch (type.tag()) {
+            case core::TypePtr::Tag::AliasType: {
+                const auto &alias = core::cast_type_nonnull<core::AliasType>(type);
+                maybeEmit(alias.symbol);
+                break;
+            }
+            case core::TypePtr::Tag::AndType: {
+                const auto &andType = core::cast_type_nonnull<core::AndType>(type);
+                enqueueSymbolsInType(andType.left);
+                enqueueSymbolsInType(andType.right);
+                break;
+            }
+            case core::TypePtr::Tag::AppliedType: {
+                const auto &applied = core::cast_type_nonnull<core::AppliedType>(type);
+                maybeEmit(applied.klass);
+                for (auto &targ : applied.targs) {
+                    enqueueSymbolsInType(targ);
+                }
+                break;
+            }
+            case core::TypePtr::Tag::BlamedUntyped: {
+                break;
+            }
+            case core::TypePtr::Tag::ClassType: {
+                const auto &classType = core::cast_type_nonnull<core::ClassType>(type);
+                maybeEmit(classType.symbol);
+                break;
+            }
+            case core::TypePtr::Tag::LiteralType: {
+                // No symbols here.
+                break;
+            }
+            case core::TypePtr::Tag::MetaType: {
+                const auto &metaType = core::cast_type_nonnull<core::MetaType>(type);
+                enqueueSymbolsInType(metaType.wrapped);
+                break;
+            }
+            case core::TypePtr::Tag::OrType: {
+                const auto &orType = core::cast_type_nonnull<core::OrType>(type);
+                enqueueSymbolsInType(orType.left);
+                enqueueSymbolsInType(orType.right);
+                break;
+            }
+            case core::TypePtr::Tag::SelfType: {
+                break;
+            }
+            case core::TypePtr::Tag::SelfTypeParam: {
+                const auto &selfTypeParam = core::cast_type_nonnull<core::SelfTypeParam>(type);
+                maybeEmit(selfTypeParam.definition);
+                break;
+            }
+            case core::TypePtr::Tag::ShapeType: {
+                const auto &shapeType = core::cast_type_nonnull<core::ShapeType>(type);
+                for (const auto &key : shapeType.keys) {
+                    enqueueSymbolsInType(key);
+                }
+                for (const auto &value : shapeType.values) {
+                    enqueueSymbolsInType(value);
+                }
+                break;
+            }
+            case core::TypePtr::Tag::TupleType: {
+                const auto &tupleType = core::cast_type_nonnull<core::TupleType>(type);
+                for (const auto &elem : tupleType.elems) {
+                    enqueueSymbolsInType(elem);
+                }
+                break;
+            }
+            case core::TypePtr::Tag::TypeVar: {
+                break;
+            }
+            case core::TypePtr::Tag::UnresolvedAppliedType: {
+                const auto &unresolvedAppliedType = core::cast_type_nonnull<core::UnresolvedAppliedType>(type);
+                maybeEmit(unresolvedAppliedType.klass);
+                maybeEmit(unresolvedAppliedType.symbol);
+                for (const auto &targ : unresolvedAppliedType.targs) {
+                    enqueueSymbolsInType(targ);
+                }
+                break;
+            }
+            case core::TypePtr::Tag::UnresolvedClassType: {
+                break;
+            }
+            case core::TypePtr::Tag::LambdaParam: {
+                const auto &lambdaParam = core::cast_type_nonnull<core::LambdaParam>(type);
+                enqueueSymbolsInType(lambdaParam.lowerBound);
+                enqueueSymbolsInType(lambdaParam.upperBound);
+                break;
+            }
+        }
+    }
+
     Output out;
 
     // copied from variance.cc
@@ -285,14 +384,16 @@ private:
         }
     }
 
-    bool isInPackage(core::ClassOrModuleRef klass) {
+    bool isInPackage(core::SymbolRef klass) {
         if (klass == pkgNamespace) {
             return true;
         }
-        if (pkgNamespaces.contains(klass)) {
-            return false;
+        if (klass.isClassOrModule()) {
+            if (pkgNamespaces.contains(klass.asClassOrModuleRef())) {
+                return false;
+            }
         }
-        return isInPackage(klass.data(gs)->owner.asClassOrModuleRef());
+        return isInPackage(klass.owner(gs));
     }
 
     string typeDeclaration(const core::TypePtr &type) {
@@ -314,18 +415,22 @@ private:
     }
 
     void emit(core::ClassOrModuleRef klass) {
-        if (pkgNamespaces.contains(klass) && klass != pkgNamespace) {
+        if (emittedSymbols.contains(klass)) {
+            return;
+        }
+        if (!isInPackage(klass)) {
             // We don't emit class definitions for items defined in other packages.
             return;
         }
+        emittedSymbols.insert(klass);
 
         cerr << "Emitting " << klass.show(gs) << "\n";
-        vector<core::ClassOrModuleRef> klassesToEmit;
         // Class definition line
         auto defType = klass.data(gs)->isClassOrModuleClass() ? "class" : "module";
         auto fullName = klass.show(gs);
         string superClassString;
         if (klass.data(gs)->superClass().exists()) {
+            maybeEmit(klass.data(gs)->superClass());
             superClassString = absl::StrCat(" < ", klass.data(gs)->superClass().show(gs));
         }
         out.println("{} {}{}", defType, fullName, superClassString);
@@ -352,7 +457,7 @@ private:
                     case core::SymbolRef::Kind::ClassOrModule: {
                         // Emit later.
                         cerr << name.show(gs) << "\n";
-                        klassesToEmit.emplace_back(member.asClassOrModuleRef());
+                        maybeEmit(member);
                         break;
                     }
                     case core::SymbolRef::Kind::TypeMember: {
@@ -396,7 +501,7 @@ private:
                     switch (member.kind()) {
                         case core::SymbolRef::Kind::ClassOrModule: {
                             cerr << name.show(gs) << "\n";
-                            klassesToEmit.emplace_back(member.asClassOrModuleRef());
+                            maybeEmit(member);
                             break;
                         }
                         case core::SymbolRef::Kind::TypeMember: {
@@ -426,15 +531,20 @@ private:
         }
 
         out.println("end");
-
-        for (auto klassToEmit : klassesToEmit) {
-            emit(klassToEmit);
-        }
     }
 
     void emit(core::MethodRef method) {
+        if (emittedSymbols.contains(method)) {
+            return;
+        }
+
         if (method.data(gs)->name == core::Names::staticInit()) {
             return;
+        }
+        emittedSymbols.insert(method);
+
+        for (auto &arg : method.data(gs)->arguments) {
+            enqueueSymbolsInType(arg.type);
         }
 
         if (method.data(gs)->hasSig()) {
@@ -472,6 +582,10 @@ private:
         }
     }
     void emit(core::FieldRef field) {
+        if (emittedSymbols.contains(field)) {
+            return;
+        }
+        emittedSymbols.insert(field);
         if (field.data(gs)->isStaticField()) {
             // Static field
             const auto &resultType = field.data(gs)->resultType;
@@ -482,6 +596,11 @@ private:
     }
 
     void emit(core::TypeMemberRef tm) {
+        if (emittedSymbols.contains(tm)) {
+            return;
+        }
+        emittedSymbols.insert(tm);
+
         if (tm.data(gs)->name == core::Names::Constants::AttachedClass()) {
             return;
         }
@@ -493,18 +612,70 @@ public:
                 const UnorderedSet<core::ClassOrModuleRef> &pkgNamespaces)
         : gs(gs), pkg(pkg), pkgNamespace(lookupFQN(gs, pkg.fullName())), pkgNamespaces(pkgNamespaces) {}
 
-    void emit() {
+    void emit(string outputDir) {
         for (auto &e : pkg.exports()) {
             auto exportSymbol = lookupFQN(gs, e);
             if (exportSymbol.exists()) {
-                emit(exportSymbol);
+                maybeEmit(exportSymbol);
+            } else {
+                Exception::raise("Invalid package export");
             }
-            // TODO: Emit an error if it doesn't exist?
         }
-    }
 
-    string toString() {
-        return out.toString();
+        while (!toEmit.empty()) {
+            auto symbol = toEmit.back();
+            toEmit.pop_back();
+            switch (symbol.kind()) {
+                case core::SymbolRef::Kind::ClassOrModule:
+                    emit(symbol.asClassOrModuleRef());
+                    break;
+                case core::SymbolRef::Kind::Method:
+                    emit(symbol.asMethodRef());
+                    break;
+                case core::SymbolRef::Kind::FieldOrStaticField:
+                    emit(symbol.asFieldRef());
+                    break;
+                case core::SymbolRef::Kind::TypeMember:
+                    break;
+                case core::SymbolRef::Kind::TypeArgument:
+                    break;
+            }
+        }
+
+        auto outputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(gs), ".rbi");
+        FileOps::write(outputFile, out.toString());
+
+        for (auto &e : pkg.testExports()) {
+            auto exportSymbol = lookupFQN(gs, e);
+            if (exportSymbol.exists()) {
+                maybeEmit(exportSymbol);
+            } else {
+                Exception::raise("Invalid package export");
+            }
+        }
+
+        while (!toEmit.empty()) {
+            auto symbol = toEmit.back();
+            toEmit.pop_back();
+            switch (symbol.kind()) {
+                case core::SymbolRef::Kind::ClassOrModule:
+                    emit(symbol.asClassOrModuleRef());
+                    break;
+                case core::SymbolRef::Kind::Method:
+                    emit(symbol.asMethodRef());
+                    break;
+                case core::SymbolRef::Kind::FieldOrStaticField:
+                    emit(symbol.asFieldRef());
+                    break;
+                case core::SymbolRef::Kind::TypeMember:
+                    break;
+                case core::SymbolRef::Kind::TypeArgument:
+                    break;
+            }
+        }
+
+        auto testOutputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(gs), ".test.rbi");
+        FileOps::write(testOutputFile, out.toString());
     }
 };
 } // namespace
@@ -535,11 +706,7 @@ void RBIGenerator::run(core::GlobalState &gs, vector<ast::ParsedFile> packageFil
         for (auto result = inputq->try_pop(job); !result.done(); result = inputq->try_pop(job)) {
             auto &pkg = rogs.packageDB().getPackageInfo(job);
             ENFORCE(pkg.exists());
-            auto outputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(rogs), ".rbi");
             RBIExporter exporter(rogs, pkg, packageNamespaces);
-
-            // TODO: Test package RBIs.
-            FileOps::write(outputFile, exporter.toString());
         }
         threadBarrier.DecrementCount();
     });
