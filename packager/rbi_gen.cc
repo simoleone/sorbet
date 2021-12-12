@@ -643,6 +643,7 @@ public:
         }
 
         auto outputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(gs), ".rbi");
+        cerr << outputFile << "\n";
         FileOps::write(outputFile, out.toString());
 
         for (auto &e : pkg.testExports()) {
@@ -675,6 +676,7 @@ public:
         }
 
         auto testOutputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(gs), ".test.rbi");
+        cerr << testOutputFile << "\n";
         FileOps::write(testOutputFile, out.toString());
     }
 };
@@ -689,6 +691,9 @@ void RBIGenerator::run(core::GlobalState &gs, vector<ast::ParsedFile> packageFil
     const auto &packageDB = gs.packageDB();
 
     auto &packages = packageDB.packages();
+    if (packages.empty()) {
+        Exception::raise("No packages found?");
+    }
     auto inputq = make_shared<ConcurrentBoundedQueue<core::NameRef>>(packages.size());
 
     UnorderedSet<core::ClassOrModuleRef> packageNamespaces;
@@ -711,7 +716,6 @@ void RBIGenerator::run(core::GlobalState &gs, vector<ast::ParsedFile> packageFil
         }
         threadBarrier.DecrementCount();
     });
-    // Wait for threads to complete destructing the trees.
     threadBarrier.Wait();
 }
 } // namespace sorbet::packager
