@@ -707,6 +707,7 @@ void RBIGenerator::run(core::GlobalState &gs, vector<ast::ParsedFile> packageFil
             auto &pkg = rogs.packageDB().getPackageInfo(job);
             ENFORCE(pkg.exists());
             RBIExporter exporter(rogs, pkg, packageNamespaces);
+            exporter.emit(outputDir);
         }
         threadBarrier.DecrementCount();
     });
