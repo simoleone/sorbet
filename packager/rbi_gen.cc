@@ -48,7 +48,9 @@ public:
     }
 
     string toString() {
-        return fmt::to_string(out);
+        auto output = fmt::to_string(out);
+        out.clear();
+        return output;
     }
 };
 
@@ -432,8 +434,11 @@ private:
         auto fullName = klass.show(gs);
         string superClassString;
         if (klass.data(gs)->superClass().exists()) {
-            maybeEmit(klass.data(gs)->superClass());
-            superClassString = absl::StrCat(" < ", klass.data(gs)->superClass().show(gs));
+            auto superClass = klass.data(gs)->superClass();
+            if (superClass != core::Symbols::Sorbet_Private_Static_ImplicitModuleSuperClass()) {
+                maybeEmit(superClass);
+                superClassString = absl::StrCat(" < ", superClass.show(gs));
+            }
         }
         out.println("{} {}{}", defType, fullName, superClassString);
 
@@ -644,35 +649,41 @@ public:
         : gs(gs), pkg(pkg), pkgNamespace(lookupFQN(gs, pkg.fullName())), pkgNamespaces(pkgNamespaces) {}
 
     void emit(string outputDir) {
-        for (auto &e : pkg.exports()) {
-            auto exportSymbol = lookupFQN(gs, e);
-            if (exportSymbol.exists()) {
-                maybeEmit(exportSymbol);
-            } else {
-                Exception::raise("Invalid package export");
+        auto exports = pkg.exports();
+        if (!exports.empty()) {
+            for (auto &e : pkg.exports()) {
+                auto exportSymbol = lookupFQN(gs, e);
+                if (exportSymbol.exists()) {
+                    maybeEmit(exportSymbol);
+                } else {
+                    Exception::raise("Invalid package export");
+                }
             }
+
+            emitLoop();
+
+            auto outputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(gs), ".rbi");
+            cerr << outputFile << "\n";
+            FileOps::write(outputFile, out.toString());
         }
 
-        emitLoop();
-
-        auto outputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(gs), ".rbi");
-        cerr << outputFile << "\n";
-        FileOps::write(outputFile, out.toString());
-
-        for (auto &e : pkg.testExports()) {
-            auto exportSymbol = lookupFQN(gs, e);
-            if (exportSymbol.exists()) {
-                maybeEmit(exportSymbol);
-            } else {
-                Exception::raise("Invalid package export");
+        auto testExports = pkg.testExports();
+        if (!testExports.empty()) {
+            for (auto &e : testExports) {
+                auto exportSymbol = lookupFQN(gs, e);
+                if (exportSymbol.exists()) {
+                    maybeEmit(exportSymbol);
+                } else {
+                    Exception::raise("Invalid package export");
+                }
             }
+
+            emitLoop();
+
+            auto testOutputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(gs), ".test.rbi");
+            cerr << testOutputFile << "\n";
+            FileOps::write(testOutputFile, out.toString());
         }
-
-        emitLoop();
-
-        auto testOutputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(gs), ".test.rbi");
-        cerr << testOutputFile << "\n";
-        FileOps::write(testOutputFile, out.toString());
     }
 };
 } // namespace
