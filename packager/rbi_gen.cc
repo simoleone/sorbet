@@ -248,11 +248,11 @@ string prettyDefForMethod(const core::GlobalState &gs, core::MethodRef method) {
     return result;
 }
 
-core::ClassOrModuleRef lookupFQN(const core::GlobalState &gs, const vector<core::NameRef> &fqn) {
+core::SymbolRef lookupFQN(const core::GlobalState &gs, const vector<core::NameRef> &fqn) {
     core::ClassOrModuleRef scope = core::Symbols::root();
     for (auto name : fqn) {
         auto result = scope.data(gs)->findMember(gs, name);
-        if (!result.exists() || !result.isClassOrModule()) {
+        if (!result.exists()) {
             return core::Symbols::noClassOrModule();
         }
         scope = result.asClassOrModuleRef();
@@ -646,7 +646,8 @@ private:
 public:
     RBIExporter(const core::GlobalState &gs, const core::packages::PackageInfo &pkg,
                 const UnorderedSet<core::ClassOrModuleRef> &pkgNamespaces)
-        : gs(gs), pkg(pkg), pkgNamespace(lookupFQN(gs, pkg.fullName())), pkgNamespaces(pkgNamespaces) {}
+        : gs(gs), pkg(pkg), pkgNamespace(lookupFQN(gs, pkg.fullName()).asClassOrModuleRef()),
+          pkgNamespaces(pkgNamespaces) {}
 
     void emit(string outputDir) {
         auto exports = pkg.exports();
@@ -707,7 +708,7 @@ void RBIGenerator::run(core::GlobalState &gs, vector<ast::ParsedFile> packageFil
         auto &pkg = gs.packageDB().getPackageInfo(package);
         auto packageNamespace = lookupFQN(gs, pkg.fullName());
         ENFORCE(packageNamespace.exists());
-        packageNamespaces.insert(packageNamespace);
+        packageNamespaces.insert(packageNamespace.asClassOrModuleRef());
         inputq->push(move(package), 1);
     }
 
