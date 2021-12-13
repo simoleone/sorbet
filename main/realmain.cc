@@ -611,8 +611,8 @@ int realmain(int argc, char *argv[]) {
                 gs->errorQueue->flushAllErrors(*gs);
             }
 
-            if (opts.minimizeRBI.empty()) {
-                // we don't need to typecheck under minimize rbi
+            if (opts.packageRBIOutput.empty()) {
+                // we don't need to typecheck under packageRBIOutput
                 pipeline::typecheck(gs, move(indexed), opts, *workers, /* cancelable */ false, nullopt,
                                     /* presorted */ false, /* intentionallyLeakASTs */ !sorbet::emscripten_build);
             }
