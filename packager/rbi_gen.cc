@@ -405,7 +405,7 @@ private:
             auto alias = core::cast_type_nonnull<core::AliasType>(type);
             return alias.symbol.show(gs);
         } else {
-            return absl::StrCat("T.let(T.unsafe(nil), ", type.toString(gs), ")");
+            return absl::StrCat("T.let(T.unsafe(nil), ", type.show(gs), ")");
         }
     }
 
