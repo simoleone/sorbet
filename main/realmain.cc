@@ -17,6 +17,7 @@
 #include "main/lsp/LSPOutput.h"
 #include "main/lsp/lsp.h"
 #include "main/minimize/minimize.h"
+#include "packager/packager.h"
 #include "packager/rbi_gen.h"
 #endif
 
@@ -752,6 +753,14 @@ int realmain(int argc, char *argv[]) {
         } catch (FileNotFoundException e) {
             logger->error("Cannot write metrics file at `{}`", opts.metricsFile);
         }
+    }
+
+    if (!opts.dumpPackageInfo.empty()) {
+        if (!opts.stripePackages) {
+            logger->error("stripe packages mode needs to be enabled");
+            return 1;
+        }
+        packager::Packager::dumpPackageInfo(*gs, opts.dumpPackageInfo);
     }
 
     if (!opts.packageRBIOutput.empty()) {

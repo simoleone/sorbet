@@ -1586,4 +1586,74 @@ ast::ParsedFile Packager::removePackageModules(core::Context ctx, ast::ParsedFil
     return pf;
 }
 
+namespace {
+
+class ImportFormatter final {
+    const core::GlobalState &gs;
+
+public:
+    ImportFormatter(const core::GlobalState &gs) : gs(gs) {}
+
+    void operator()(std::string *out, const vector<core::NameRef> &name) const {
+        fmt::format_to(back_inserter(*out), "\"{}\"", absl::StrJoin(name, "::", NameFormatter(gs)));
+    }
+};
+
+class FileListFormatter final {
+    const core::GlobalState &gs;
+
+public:
+    FileListFormatter(const core::GlobalState &gs) : gs(gs) {}
+
+    void operator()(std::string *out, core::FileRef file) const {
+        out->append("\"");
+        out->append(file.data(gs).path());
+        out->append("\"");
+    }
+};
+
+class PackageInfoFormatter final {
+    const core::GlobalState &gs;
+    const UnorderedMap<core::NameRef, vector<core::FileRef>> &packageFiles;
+
+public:
+    PackageInfoFormatter(const core::GlobalState &gs,
+                         const UnorderedMap<core::NameRef, vector<core::FileRef>> &packageFiles)
+        : gs(gs), packageFiles(packageFiles) {}
+
+    void operator()(std::string *out, core::NameRef mangledName) const {
+        const auto &pkg = gs.packageDB().getPackageInfo(mangledName);
+        out->append("[");
+        fmt::format_to(back_inserter(*out), "\"{}\",", absl::StrJoin(pkg.fullName(), "::", NameFormatter(gs)));
+        out->append("[");
+        fmt::format_to(back_inserter(*out), absl::StrJoin(pkg.imports(), ",", ImportFormatter(gs)));
+        out->append("],[");
+        const auto it = packageFiles.find(mangledName);
+        if (it != packageFiles.end()) {
+            fmt::format_to(back_inserter(*out), absl::StrJoin(it->second, ",", FileListFormatter(gs)));
+        }
+        out->append("]]");
+    }
+};
+
+} // namespace
+
+void Packager::dumpPackageInfo(const core::GlobalState &gs, std::string output) {
+    const auto &pkgDB = gs.packageDB();
+    // package => files
+    UnorderedMap<core::NameRef, vector<core::FileRef>> packageFiles;
+    for (uint32_t i = 1; i < gs.filesUsed(); ++i) {
+        core::FileRef file(i);
+        const auto &pkg = pkgDB.getPackageForFile(gs, file);
+        if (pkg.exists()) {
+            packageFiles[pkg.mangledName()].emplace_back(file);
+        }
+    }
+
+    fmt::memory_buffer out;
+    fmt::format_to(back_inserter(out), "[");
+    fmt::format_to(back_inserter(out), absl::StrJoin(pkgDB.packages(), ",", PackageInfoFormatter(gs, packageFiles)));
+    fmt::format_to(back_inserter(out), "]");
+}
+
 } // namespace sorbet::packager

@@ -91,6 +91,8 @@ public:
     static ast::ParsedFile removePackageModules(core::Context ctx, ast::ParsedFile pf,
                                                 bool intentionallyLeakASTs = false);
 
+    static void dumpPackageInfo(const core::GlobalState &gs, std::string output);
+
     Packager() = delete;
 };
 } // namespace sorbet::packager
