@@ -610,8 +610,12 @@ int realmain(int argc, char *argv[]) {
             if (gs->hadCriticalError()) {
                 gs->errorQueue->flushAllErrors(*gs);
             }
-            pipeline::typecheck(gs, move(indexed), opts, *workers, /* cancelable */ false, nullopt,
-                                /* presorted */ false, /* intentionallyLeakASTs */ !sorbet::emscripten_build);
+
+            if (opts.minimizeRBI.empty()) {
+                // we don't need to typecheck under minimize rbi
+                pipeline::typecheck(gs, move(indexed), opts, *workers, /* cancelable */ false, nullopt,
+                                    /* presorted */ false, /* intentionallyLeakASTs */ !sorbet::emscripten_build);
+            }
             if (gs->hadCriticalError()) {
                 gs->errorQueue->flushAllErrors(*gs);
             }
