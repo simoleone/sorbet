@@ -1638,7 +1638,7 @@ public:
 
 } // namespace
 
-void Packager::dumpPackageInfo(const core::GlobalState &gs, std::string output) {
+void Packager::dumpPackageInfo(const core::GlobalState &gs, std::string outputFile) {
     const auto &pkgDB = gs.packageDB();
     // package => files
     UnorderedMap<core::NameRef, vector<core::FileRef>> packageFiles;
@@ -1654,6 +1654,7 @@ void Packager::dumpPackageInfo(const core::GlobalState &gs, std::string output) 
     fmt::format_to(back_inserter(out), "[");
     fmt::format_to(back_inserter(out), absl::StrJoin(pkgDB.packages(), ",", PackageInfoFormatter(gs, packageFiles)));
     fmt::format_to(back_inserter(out), "]");
+    FileOps::write(outputFile, fmt::to_string(out));
 }
 
 } // namespace sorbet::packager
