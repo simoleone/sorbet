@@ -268,6 +268,7 @@ private:
     vector<core::SymbolRef> toEmit;
     void maybeEmit(core::SymbolRef symbol) {
         if (!emittedSymbols.contains(symbol) && isInPackage(symbol)) {
+            emittedSymbols.insert(symbol);
             toEmit.emplace_back(symbol);
         }
     }
@@ -415,14 +416,10 @@ private:
     }
 
     void emit(core::ClassOrModuleRef klass) {
-        if (emittedSymbols.contains(klass)) {
-            return;
-        }
-        if (!isInPackage(klass)) {
+        if (!isInPackage(klass) || !emittedSymbols.contains(klass)) {
             // We don't emit class definitions for items defined in other packages.
-            return;
+            Exception::raise("Invalid klass");
         }
-        emittedSymbols.insert(klass);
 
         cerr << "Emitting " << klass.show(gs) << "\n";
         // Class definition line
@@ -443,6 +440,7 @@ private:
                 auto isSingleton = mixin.data(gs)->isSingletonClass(gs);
                 auto keyword = isSingleton ? "extend"sv : "include"sv;
                 out.println("{} {}", keyword, mixin.show(gs));
+                maybeEmit(mixin);
             }
 
             // Members
@@ -456,7 +454,6 @@ private:
                 switch (member.kind()) {
                     case core::SymbolRef::Kind::ClassOrModule: {
                         // Emit later.
-                        cerr << name.show(gs) << "\n";
                         maybeEmit(member);
                         break;
                     }
@@ -500,7 +497,6 @@ private:
 
                     switch (member.kind()) {
                         case core::SymbolRef::Kind::ClassOrModule: {
-                            cerr << name.show(gs) << "\n";
                             maybeEmit(member);
                             break;
                         }
@@ -529,6 +525,8 @@ private:
                 }
             }
         }
+
+        // TODO: Fields on singleton class.
 
         out.println("end");
     }
@@ -607,6 +605,28 @@ private:
         out.println("{} = type_member({})", tm.data(gs)->name.show(gs), showVariance(tm));
     }
 
+    void emitLoop() {
+        while (!toEmit.empty()) {
+            auto symbol = toEmit.back();
+            toEmit.pop_back();
+            switch (symbol.kind()) {
+                case core::SymbolRef::Kind::ClassOrModule:
+                    emit(symbol.asClassOrModuleRef());
+                    break;
+                case core::SymbolRef::Kind::Method:
+                    emit(symbol.asMethodRef());
+                    break;
+                case core::SymbolRef::Kind::FieldOrStaticField:
+                    emit(symbol.asFieldRef());
+                    break;
+                case core::SymbolRef::Kind::TypeMember:
+                    break;
+                case core::SymbolRef::Kind::TypeArgument:
+                    break;
+            }
+        }
+    }
+
 public:
     RBIExporter(const core::GlobalState &gs, const core::packages::PackageInfo &pkg,
                 const UnorderedSet<core::ClassOrModuleRef> &pkgNamespaces)
@@ -622,25 +642,7 @@ public:
             }
         }
 
-        while (!toEmit.empty()) {
-            auto symbol = toEmit.back();
-            toEmit.pop_back();
-            switch (symbol.kind()) {
-                case core::SymbolRef::Kind::ClassOrModule:
-                    emit(symbol.asClassOrModuleRef());
-                    break;
-                case core::SymbolRef::Kind::Method:
-                    emit(symbol.asMethodRef());
-                    break;
-                case core::SymbolRef::Kind::FieldOrStaticField:
-                    emit(symbol.asFieldRef());
-                    break;
-                case core::SymbolRef::Kind::TypeMember:
-                    break;
-                case core::SymbolRef::Kind::TypeArgument:
-                    break;
-            }
-        }
+        emitLoop();
 
         auto outputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(gs), ".rbi");
         cerr << outputFile << "\n";
@@ -655,25 +657,7 @@ public:
             }
         }
 
-        while (!toEmit.empty()) {
-            auto symbol = toEmit.back();
-            toEmit.pop_back();
-            switch (symbol.kind()) {
-                case core::SymbolRef::Kind::ClassOrModule:
-                    emit(symbol.asClassOrModuleRef());
-                    break;
-                case core::SymbolRef::Kind::Method:
-                    emit(symbol.asMethodRef());
-                    break;
-                case core::SymbolRef::Kind::FieldOrStaticField:
-                    emit(symbol.asFieldRef());
-                    break;
-                case core::SymbolRef::Kind::TypeMember:
-                    break;
-                case core::SymbolRef::Kind::TypeArgument:
-                    break;
-            }
-        }
+        emitLoop();
 
         auto testOutputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(gs), ".test.rbi");
         cerr << testOutputFile << "\n";
@@ -709,10 +693,12 @@ void RBIGenerator::run(core::GlobalState &gs, vector<ast::ParsedFile> packageFil
     workers.multiplexJob("RBIGenerator", [inputq, outputDir, &threadBarrier, &rogs, &packageNamespaces]() {
         core::NameRef job;
         for (auto result = inputq->try_pop(job); !result.done(); result = inputq->try_pop(job)) {
-            auto &pkg = rogs.packageDB().getPackageInfo(job);
-            ENFORCE(pkg.exists());
-            RBIExporter exporter(rogs, pkg, packageNamespaces);
-            exporter.emit(outputDir);
+            if (result.gotItem()) {
+                auto &pkg = rogs.packageDB().getPackageInfo(job);
+                ENFORCE(pkg.exists());
+                RBIExporter exporter(rogs, pkg, packageNamespaces);
+                exporter.emit(outputDir);
+            }
         }
         threadBarrier.DecrementCount();
     });
