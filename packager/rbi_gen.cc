@@ -386,6 +386,9 @@ private:
     }
 
     bool isInPackage(core::SymbolRef klass) {
+        if (klass == core::Symbols::root() || klass == core::Symbols::PackageRegistry()) {
+            return false;
+        }
         if (klass == pkgNamespace) {
             return true;
         }
@@ -557,6 +560,7 @@ private:
         if (fields.empty() && !method.exists()) {
             return;
         }
+        cerr << "Emitting initialized\n";
         string methodDef;
         if (method.exists()) {
             if (method.data(gs)->hasSig()) {
