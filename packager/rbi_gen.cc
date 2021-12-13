@@ -218,14 +218,16 @@ string prettyDefForMethod(const core::GlobalState &gs, core::MethodRef method) {
             }
         } else if (argSym.flags.isKeyword) {
             if (argSym.flags.isDefault) {
-                suffix = ": …"; // optional keyword (has a default value)
+                // suffix = ": …"; // optional keyword (has a default value)
+                suffix = ":";
             } else {
                 suffix = ":"; // required keyword
             }
         } else if (argSym.flags.isBlock) {
             prefix = "&";
         } else if (argSym.flags.isDefault) {
-            suffix = "=…";
+            suffix = "";
+            // suffix = "=…";
         }
         prettyArgs.emplace_back(fmt::format("{}{}{}", prefix, argSym.argumentName(gs), suffix));
     }
