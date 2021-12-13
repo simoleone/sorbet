@@ -401,7 +401,9 @@ private:
     }
 
     string typeDeclaration(const core::TypePtr &type) {
-        if (core::isa_type<core::AliasType>(type)) {
+        if (type == nullptr) {
+            return absl::StrCat("T.let(T.unsafe(nil), ", core::Types::untypedUntracked().show(gs), ")");
+        } else if (core::isa_type<core::AliasType>(type)) {
             auto alias = core::cast_type_nonnull<core::AliasType>(type);
             return alias.symbol.show(gs);
         } else {
