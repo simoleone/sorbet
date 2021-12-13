@@ -541,6 +541,8 @@ private:
         }
         emittedSymbols.insert(method);
 
+        cerr << "Emitting " << method.show(gs) << "\n";
+
         for (auto &arg : method.data(gs)->arguments) {
             enqueueSymbolsInType(arg.type);
         }
@@ -584,6 +586,7 @@ private:
             return;
         }
         emittedSymbols.insert(field);
+        cerr << "Emitting " << field.show(gs) << "\n";
         if (field.data(gs)->isStaticField()) {
             // Static field
             const auto &resultType = field.data(gs)->resultType;
@@ -598,6 +601,8 @@ private:
             return;
         }
         emittedSymbols.insert(tm);
+
+        cerr << "Emitting " << tm.show(gs) << "\n";
 
         if (tm.data(gs)->name == core::Names::Constants::AttachedClass()) {
             return;
@@ -668,7 +673,7 @@ public:
 
 void RBIGenerator::run(core::GlobalState &gs, vector<ast::ParsedFile> packageFiles, string outputDir,
                        WorkerPool &workers) {
-    absl::BlockingCounter threadBarrier(std::max(workers.size(), 1));
+    // absl::BlockingCounter threadBarrier(std::max(workers.size(), 1));
     // Populate package database.
     Packager::findPackages(gs, workers, move(packageFiles));
 
@@ -690,18 +695,18 @@ void RBIGenerator::run(core::GlobalState &gs, vector<ast::ParsedFile> packageFil
     }
 
     const core::GlobalState &rogs = gs;
-    workers.multiplexJob("RBIGenerator", [inputq, outputDir, &threadBarrier, &rogs, &packageNamespaces]() {
-        core::NameRef job;
-        for (auto result = inputq->try_pop(job); !result.done(); result = inputq->try_pop(job)) {
-            if (result.gotItem()) {
-                auto &pkg = rogs.packageDB().getPackageInfo(job);
-                ENFORCE(pkg.exists());
-                RBIExporter exporter(rogs, pkg, packageNamespaces);
-                exporter.emit(outputDir);
-            }
+    // workers.multiplexJob("RBIGenerator", [inputq, outputDir, &threadBarrier, &rogs, &packageNamespaces]() {
+    core::NameRef job;
+    for (auto result = inputq->try_pop(job); !result.done(); result = inputq->try_pop(job)) {
+        if (result.gotItem()) {
+            auto &pkg = rogs.packageDB().getPackageInfo(job);
+            ENFORCE(pkg.exists());
+            RBIExporter exporter(rogs, pkg, packageNamespaces);
+            exporter.emit(outputDir);
         }
-        threadBarrier.DecrementCount();
-    });
-    threadBarrier.Wait();
+    }
+    //    threadBarrier.DecrementCount();
+    //});
+    // threadBarrier.Wait();
 }
 } // namespace sorbet::packager
