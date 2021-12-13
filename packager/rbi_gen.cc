@@ -1,4 +1,5 @@
 #include "packager/rbi_gen.h"
+#include "absl/strings/str_replace.h"
 #include "absl/synchronization/blocking_counter.h"
 #include "common/FileOps.h"
 #include "common/concurrency/ConcurrentQueue.h"
@@ -43,7 +44,9 @@ public:
 
     void println(string_view arg) {
         fmt::format_to(std::back_inserter(out), tabStr);
-        std::copy(arg.begin(), arg.end(), std::back_inserter(out));
+        // Hack: Intent even w/ multiline strings.
+        string indented = absl::StrReplaceAll(arg, {{"\n", tabStr + "\n"}});
+        std::copy(indented.begin(), indented.end(), std::back_inserter(out));
         fmt::format_to(std::back_inserter(out), "\n");
     }
 
