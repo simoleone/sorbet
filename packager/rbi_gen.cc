@@ -45,7 +45,7 @@ public:
     void println(string_view arg) {
         fmt::format_to(std::back_inserter(out), tabStr);
         // Hack: Intent even w/ multiline strings.
-        string indented = absl::StrReplaceAll(arg, {{"\n", tabStr + "\n"}});
+        string indented = absl::StrReplaceAll(arg, {{"\n", "\n" + tabStr}});
         std::copy(indented.begin(), indented.end(), std::back_inserter(out));
         fmt::format_to(std::back_inserter(out), "\n");
     }
@@ -431,7 +431,7 @@ private:
             Exception::raise("Invalid klass");
         }
 
-        cerr << "Emitting " << klass.show(gs) << "\n";
+        // cerr << "Emitting " << klass.show(gs) << "\n";
         // Class definition line
         auto defType = klass.data(gs)->isClassOrModuleClass() ? "class" : "module";
         auto fullName = klass.show(gs);
@@ -554,7 +554,7 @@ private:
         }
         emittedSymbols.insert(method);
 
-        cerr << "Emitting " << method.show(gs) << "\n";
+        // cerr << "Emitting " << method.show(gs) << "\n";
 
         for (auto &arg : method.data(gs)->arguments) {
             enqueueSymbolsInType(arg.type);
@@ -570,7 +570,7 @@ private:
         if (fields.empty() && !method.exists()) {
             return;
         }
-        cerr << "Emitting initialized\n";
+        // cerr << "Emitting initialized\n";
         string methodDef;
         if (method.exists()) {
             if (method.data(gs)->hasSig()) {
@@ -600,7 +600,7 @@ private:
             return;
         }
         emittedSymbols.insert(field);
-        cerr << "Emitting " << field.show(gs) << "\n";
+        // cerr << "Emitting " << field.show(gs) << "\n";
         if (field.data(gs)->isStaticField()) {
             // Static field
             const auto &resultType = field.data(gs)->resultType;
@@ -616,7 +616,7 @@ private:
         }
         emittedSymbols.insert(tm);
 
-        cerr << "Emitting " << tm.show(gs) << "\n";
+        // cerr << "Emitting " << tm.show(gs) << "\n";
 
         if (tm.data(gs)->name == core::Names::Constants::AttachedClass()) {
             return;
@@ -667,7 +667,7 @@ public:
             emitLoop();
 
             auto outputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(gs), ".rbi");
-            cerr << outputFile << "\n";
+            // cerr << outputFile << "\n";
             FileOps::write(outputFile, out.toString());
         }
 
@@ -685,7 +685,7 @@ public:
             emitLoop();
 
             auto testOutputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(gs), ".test.rbi");
-            cerr << testOutputFile << "\n";
+            // cerr << testOutputFile << "\n";
             FileOps::write(testOutputFile, out.toString());
         }
     }
