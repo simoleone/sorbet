@@ -533,7 +533,7 @@ private:
                             if (field.data(gs)->isField()) {
                                 pendingFields.emplace_back(field);
                             } else {
-                                emit(field);
+                                maybeEmit(field);
                             }
                             break;
                         }
@@ -604,7 +604,7 @@ private:
         if (field.data(gs)->isStaticField()) {
             // Static field
             const auto &resultType = field.data(gs)->resultType;
-            out.println("{} = {}", field.data(gs)->name.show(gs), typeDeclaration(resultType));
+            out.println("{} = {}", field.show(gs), typeDeclaration(resultType));
         } else {
             out.println("{} = {}", field.data(gs)->name.show(gs), typeDeclaration(field.data(gs)->resultType));
         }
