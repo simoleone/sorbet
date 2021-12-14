@@ -122,6 +122,10 @@ private:
     UnorderedSet<core::SymbolRef> emittedSymbols;
     vector<core::SymbolRef> toEmit;
     void maybeEmit(core::SymbolRef symbol) {
+        if (symbol.isClassOrModule() && symbol.asClassOrModuleRef().data(gs)->isSingletonClass(gs)) {
+            maybeEmit(symbol.asClassOrModuleRef().data(gs)->attachedClass(gs));
+            return;
+        }
         if (!emittedSymbols.contains(symbol) && isInPackage(symbol)) {
             emittedSymbols.insert(symbol);
             toEmit.emplace_back(symbol);
@@ -617,8 +621,16 @@ private:
     void emit(core::FieldRef field) {
         // cerr << "Emitting " << field.show(gs) << "\n";
         if (field.data(gs)->isStaticField()) {
-            // Static field
             const auto &resultType = field.data(gs)->resultType;
+            if (resultType != nullptr && core::isa_type<core::AliasType>(resultType)) {
+                const auto &alias = core::cast_type_nonnull<core::AliasType>(resultType);
+                if (alias.symbol.isTypeMember() &&
+                    alias.symbol.asTypeMemberRef().data(gs)->owner.asClassOrModuleRef().data(gs)->isSingletonClass(
+                        gs)) {
+                    // type_templates define static fields of the same name on the main class; ignore them.
+                    return;
+                }
+            }
             out.println("{} = {}", field.show(gs), typeDeclaration(resultType));
         } else {
             out.println("{} = {}", field.data(gs)->name.show(gs), typeDeclaration(field.data(gs)->resultType));
@@ -636,7 +648,13 @@ private:
         if (tm.data(gs)->name == core::Names::Constants::AttachedClass()) {
             return;
         }
-        out.println("{} = type_member({})", tm.data(gs)->name.show(gs), showVariance(tm));
+
+        // If this is a type template, there will be an alias type defined on the non-singleton class w/ the same name.
+        if (tm.data(gs)->owner.asClassOrModuleRef().data(gs)->isSingletonClass(gs)) {
+            out.println("{} = type_template({})", tm.data(gs)->name.show(gs), showVariance(tm));
+        } else {
+            out.println("{} = type_member({})", tm.data(gs)->name.show(gs), showVariance(tm));
+        }
     }
 
     void emitLoop() {
