@@ -557,7 +557,7 @@ private:
 
         if (method.data(gs)->name == core::Names::initialize()) {
             // Don't emit `initialize` methods for `T::Struct`s.
-            if (method.data(gs)->owner == core::Symbols::T_Struct()) {
+            if (method.data(gs)->owner.data(gs)->superClass() == core::Symbols::T_Struct()) {
                 return;
             }
         }
