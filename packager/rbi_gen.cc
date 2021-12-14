@@ -555,13 +555,6 @@ private:
         }
         emittedSymbols.insert(method);
 
-        if (method.data(gs)->name == core::Names::initialize()) {
-            // Don't emit `initialize` methods for `T::Struct`s.
-            if (method.data(gs)->owner.data(gs)->superClass() == core::Symbols::T_Struct()) {
-                return;
-            }
-        }
-
         // cerr << "Emitting " << method.show(gs) << "\n";
 
         for (auto &arg : method.data(gs)->arguments) {
@@ -581,6 +574,10 @@ private:
         // cerr << "Emitting initialized\n";
         string methodDef;
         if (method.exists()) {
+            if (method.data(gs)->owner.data(gs)->superClass() == core::Symbols::T_Struct()) {
+                // Don't emit `initialize` methods for `T::Struct`s. Rewriter will create them.
+                return;
+            }
             if (method.data(gs)->hasSig()) {
                 out.println(prettySigForMethod(gs, method, nullptr, method.data(gs)->resultType, nullptr));
             }
