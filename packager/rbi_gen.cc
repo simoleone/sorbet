@@ -218,16 +218,14 @@ string prettyDefForMethod(const core::GlobalState &gs, core::MethodRef method) {
             }
         } else if (argSym.flags.isKeyword) {
             if (argSym.flags.isDefault) {
-                // suffix = ": …"; // optional keyword (has a default value)
-                suffix = ":";
+                suffix = ": T.let(T.unsafe(nil), T.untyped)"; // optional keyword (has a default value)
             } else {
                 suffix = ":"; // required keyword
             }
         } else if (argSym.flags.isBlock) {
             prefix = "&";
         } else if (argSym.flags.isDefault) {
-            suffix = "";
-            // suffix = "=…";
+            suffix = "= T.let(T.unsafe(nil), T.untyped)";
         }
         prettyArgs.emplace_back(fmt::format("{}{}{}", prefix, argSym.argumentName(gs), suffix));
     }
@@ -554,6 +552,11 @@ private:
             return;
         }
         emittedSymbols.insert(method);
+
+        if (method.data(gs)->flags.isPrivate) {
+            // Private methods will never be called outside of a package.
+            return;
+        }
 
         // cerr << "Emitting " << method.show(gs) << "\n";
 
