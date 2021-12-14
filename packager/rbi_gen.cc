@@ -672,7 +672,7 @@ public:
 
             auto outputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(gs), ".rbi");
             // cerr << outputFile << "\n";
-            FileOps::write(outputFile, out.toString());
+            FileOps::write(outputFile, "# typed: true\n\n" + out.toString());
         }
 
         auto testExports = pkg.testExports();
@@ -692,7 +692,7 @@ public:
             auto rbiText = out.toString();
             if (!rbiText.empty()) {
                 // cerr << testOutputFile << "\n";
-                FileOps::write(testOutputFile, rbiText);
+                FileOps::write(testOutputFile, "# typed: true\n\n" + rbiText);
             }
         }
     }
