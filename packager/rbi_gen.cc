@@ -101,156 +101,6 @@ constexpr int MAX_PRETTY_SIG_ARGS = 4;
 // iff a `def` would be this wide or wider, expand it to be a multi-line def.
 constexpr int MAX_PRETTY_WIDTH = 80;
 
-string prettySigForMethod(const core::GlobalState &gs, core::MethodRef method, const core::TypePtr &receiver,
-                          core::TypePtr retType, const core::TypeConstraint *constraint) {
-    ENFORCE(method.exists());
-    ENFORCE(method.data(gs)->dealiasMethod(gs) == method);
-    // handle this case anyways so that we don't crash in prod when this method is mis-used
-    if (!method.exists()) {
-        return "";
-    }
-
-    if (!retType) {
-        retType = getResultType(gs, method.data(gs)->resultType, method, receiver, constraint);
-    }
-    string methodReturnType =
-        (retType == core::Types::void_()) ? "void" : absl::StrCat("returns(", retType.show(gs), ")");
-    vector<string> typeAndArgNames;
-    vector<string> typeArguments;
-
-    vector<string> flags;
-    auto sym = method.data(gs);
-    string sigCall = "sig";
-    if (sym->flags.isFinal) {
-        sigCall = "sig(:final)";
-    }
-    if (sym->flags.isAbstract) {
-        flags.emplace_back("abstract");
-    }
-    if (sym->flags.isOverridable) {
-        flags.emplace_back("overridable");
-    }
-    if (sym->flags.isOverride) {
-        flags.emplace_back("override");
-    }
-    for (auto ta : method.data(gs)->typeArguments) {
-        typeArguments.emplace_back(absl::StrCat(":", ta.data(gs)->name.show(gs)));
-    }
-    for (auto &argSym : method.data(gs)->arguments) {
-        // Don't display synthetic arguments (like blk).
-        if (!argSym.isSyntheticBlockArgument()) {
-            typeAndArgNames.emplace_back(absl::StrCat(
-                argSym.argumentName(gs), ": ", getResultType(gs, argSym.type, method, receiver, constraint).show(gs)));
-        }
-    }
-
-    string flagString = "";
-    if (!flags.empty()) {
-        flagString = fmt::format("{}.", fmt::join(flags, "."));
-    }
-    string typeParamsString = "";
-    if (!typeArguments.empty()) {
-        typeParamsString = fmt::format("type_parameters({}).", fmt::join(typeArguments, ", "));
-    }
-    string paramsString = "";
-    if (!typeAndArgNames.empty()) {
-        paramsString = fmt::format("params({}).", fmt::join(typeAndArgNames, ", "));
-    }
-
-    auto oneline =
-        fmt::format("{} {{{}{}{}{}}}", sigCall, flagString, typeParamsString, paramsString, methodReturnType);
-    if (oneline.size() <= MAX_PRETTY_WIDTH && typeAndArgNames.size() <= MAX_PRETTY_SIG_ARGS) {
-        return oneline;
-    }
-
-    if (!flags.empty()) {
-        flagString = fmt::format("{}\n  .", fmt::join(flags, "\n  ."));
-    }
-    if (!typeArguments.empty()) {
-        typeParamsString = fmt::format("type_parameters({})\n  .", fmt::join(typeArguments, ", "));
-    }
-    if (!typeAndArgNames.empty()) {
-        paramsString = fmt::format("params(\n    {}\n  )\n  .", fmt::join(typeAndArgNames, ",\n    "));
-    }
-    return fmt::format("{} do\n  {}{}{}{}\nend", sigCall, flagString, typeParamsString, paramsString, methodReturnType);
-}
-
-string prettyDefForMethod(const core::GlobalState &gs, core::MethodRef method) {
-    ENFORCE(method.exists());
-    // handle this case anyways so that we don't crash in prod when this method is mis-used
-    if (!method.exists()) {
-        return "";
-    }
-    auto methodData = method.data(gs);
-
-    string visibility = "";
-    if (methodData->flags.isPrivate) {
-        visibility = "private ";
-    } else if (methodData->flags.isProtected) {
-        visibility = "protected ";
-    }
-
-    auto methodNameRef = methodData->name;
-    ENFORCE(methodNameRef.exists());
-    string methodName = "???";
-    if (methodNameRef.exists()) {
-        methodName = methodNameRef.toString(gs);
-    }
-    string methodNamePrefix = "";
-    if (methodData->owner.exists() && methodData->owner.data(gs)->attachedClass(gs).exists()) {
-        methodNamePrefix = "self.";
-    }
-    vector<string> prettyArgs;
-    const auto &arguments = methodData->dealiasMethod(gs).data(gs)->arguments;
-    ENFORCE(!arguments.empty(), "Should have at least a block arg");
-    for (const auto &argSym : arguments) {
-        // Don't display synthetic arguments (like blk).
-        if (argSym.isSyntheticBlockArgument()) {
-            continue;
-        }
-        string prefix = "";
-        string suffix = "";
-        if (argSym.flags.isRepeated) {
-            if (argSym.flags.isKeyword) {
-                prefix = "**"; // variadic keyword args
-            } else {
-                prefix = "*"; // rest args
-            }
-        } else if (argSym.flags.isKeyword) {
-            if (argSym.flags.isDefault) {
-                suffix = ": T.let(T.unsafe(nil), T.untyped)"; // optional keyword (has a default value)
-            } else {
-                suffix = ":"; // required keyword
-            }
-        } else if (argSym.flags.isBlock) {
-            prefix = "&";
-        } else if (argSym.flags.isDefault) {
-            suffix = "= T.let(T.unsafe(nil), T.untyped)";
-        }
-        prettyArgs.emplace_back(fmt::format("{}{}{}", prefix, argSym.argumentName(gs), suffix));
-    }
-
-    string argListPrefix = "";
-    string argListSeparator = "";
-    string argListSuffix = "";
-    if (prettyArgs.size() > 0) {
-        argListPrefix = "(";
-        argListSeparator = ", ";
-        argListSuffix = ")";
-    }
-
-    auto result = fmt::format("{}def {}{}{}{}{}", visibility, methodNamePrefix, methodName, argListPrefix,
-                              fmt::join(prettyArgs, argListSeparator), argListSuffix);
-    if (prettyArgs.size() > 0 && result.length() >= MAX_PRETTY_WIDTH) {
-        argListPrefix = "(\n  ";
-        argListSeparator = ",\n  ";
-        argListSuffix = "\n)";
-        result = fmt::format("{}def {}{}{}{}{}", visibility, methodNamePrefix, methodName, argListPrefix,
-                             fmt::join(prettyArgs, argListSeparator), argListSuffix);
-    }
-    return result;
-}
-
 core::SymbolRef lookupFQN(const core::GlobalState &gs, const vector<core::NameRef> &fqn) {
     core::ClassOrModuleRef scope = core::Symbols::root();
     for (auto name : fqn) {
@@ -276,6 +126,159 @@ private:
             emittedSymbols.insert(symbol);
             toEmit.emplace_back(symbol);
         }
+    }
+
+    string prettySigForMethod(const core::GlobalState &gs, core::MethodRef method, const core::TypePtr &receiver,
+                              core::TypePtr retType, const core::TypeConstraint *constraint) {
+        ENFORCE(method.exists());
+        ENFORCE(method.data(gs)->dealiasMethod(gs) == method);
+        // handle this case anyways so that we don't crash in prod when this method is mis-used
+        if (!method.exists()) {
+            return "";
+        }
+
+        if (!retType) {
+            retType = getResultType(gs, method.data(gs)->resultType, method, receiver, constraint);
+            enqueueSymbolsInType(retType);
+        }
+        string methodReturnType =
+            (retType == core::Types::void_()) ? "void" : absl::StrCat("returns(", retType.show(gs), ")");
+        vector<string> typeAndArgNames;
+        vector<string> typeArguments;
+
+        vector<string> flags;
+        auto sym = method.data(gs);
+        string sigCall = "sig";
+        if (sym->flags.isFinal) {
+            sigCall = "sig(:final)";
+        }
+        if (sym->flags.isAbstract) {
+            flags.emplace_back("abstract");
+        }
+        if (sym->flags.isOverridable) {
+            flags.emplace_back("overridable");
+        }
+        if (sym->flags.isOverride) {
+            flags.emplace_back("override");
+        }
+        for (auto ta : method.data(gs)->typeArguments) {
+            typeArguments.emplace_back(absl::StrCat(":", ta.data(gs)->name.show(gs)));
+        }
+        for (auto &argSym : method.data(gs)->arguments) {
+            // Don't display synthetic arguments (like blk).
+            if (!argSym.isSyntheticBlockArgument()) {
+                auto argType = getResultType(gs, argSym.type, method, receiver, constraint);
+                enqueueSymbolsInType(argType);
+                typeAndArgNames.emplace_back(absl::StrCat(argSym.argumentName(gs), ": ", argType.show(gs)));
+            }
+        }
+
+        string flagString = "";
+        if (!flags.empty()) {
+            flagString = fmt::format("{}.", fmt::join(flags, "."));
+        }
+        string typeParamsString = "";
+        if (!typeArguments.empty()) {
+            typeParamsString = fmt::format("type_parameters({}).", fmt::join(typeArguments, ", "));
+        }
+        string paramsString = "";
+        if (!typeAndArgNames.empty()) {
+            paramsString = fmt::format("params({}).", fmt::join(typeAndArgNames, ", "));
+        }
+
+        auto oneline =
+            fmt::format("{} {{{}{}{}{}}}", sigCall, flagString, typeParamsString, paramsString, methodReturnType);
+        if (oneline.size() <= MAX_PRETTY_WIDTH && typeAndArgNames.size() <= MAX_PRETTY_SIG_ARGS) {
+            return oneline;
+        }
+
+        if (!flags.empty()) {
+            flagString = fmt::format("{}\n  .", fmt::join(flags, "\n  ."));
+        }
+        if (!typeArguments.empty()) {
+            typeParamsString = fmt::format("type_parameters({})\n  .", fmt::join(typeArguments, ", "));
+        }
+        if (!typeAndArgNames.empty()) {
+            paramsString = fmt::format("params(\n    {}\n  )\n  .", fmt::join(typeAndArgNames, ",\n    "));
+        }
+        return fmt::format("{} do\n  {}{}{}{}\nend", sigCall, flagString, typeParamsString, paramsString,
+                           methodReturnType);
+    }
+
+    string prettyDefForMethod(const core::GlobalState &gs, core::MethodRef method) {
+        ENFORCE(method.exists());
+        // handle this case anyways so that we don't crash in prod when this method is mis-used
+        if (!method.exists()) {
+            return "";
+        }
+        auto methodData = method.data(gs);
+
+        string visibility = "";
+        if (methodData->flags.isPrivate) {
+            visibility = "private ";
+        } else if (methodData->flags.isProtected) {
+            visibility = "protected ";
+        }
+
+        auto methodNameRef = methodData->name;
+        ENFORCE(methodNameRef.exists());
+        string methodName = "???";
+        if (methodNameRef.exists()) {
+            methodName = methodNameRef.toString(gs);
+        }
+        string methodNamePrefix = "";
+        if (methodData->owner.exists() && methodData->owner.data(gs)->attachedClass(gs).exists()) {
+            methodNamePrefix = "self.";
+        }
+        vector<string> prettyArgs;
+        const auto &arguments = methodData->dealiasMethod(gs).data(gs)->arguments;
+        ENFORCE(!arguments.empty(), "Should have at least a block arg");
+        for (const auto &argSym : arguments) {
+            // Don't display synthetic arguments (like blk).
+            if (argSym.isSyntheticBlockArgument()) {
+                continue;
+            }
+            string prefix = "";
+            string suffix = "";
+            if (argSym.flags.isRepeated) {
+                if (argSym.flags.isKeyword) {
+                    prefix = "**"; // variadic keyword args
+                } else {
+                    prefix = "*"; // rest args
+                }
+            } else if (argSym.flags.isKeyword) {
+                if (argSym.flags.isDefault) {
+                    suffix = ": T.let(T.unsafe(nil), T.untyped)"; // optional keyword (has a default value)
+                } else {
+                    suffix = ":"; // required keyword
+                }
+            } else if (argSym.flags.isBlock) {
+                prefix = "&";
+            } else if (argSym.flags.isDefault) {
+                suffix = "= T.let(T.unsafe(nil), T.untyped)";
+            }
+            prettyArgs.emplace_back(fmt::format("{}{}{}", prefix, argSym.argumentName(gs), suffix));
+        }
+
+        string argListPrefix = "";
+        string argListSeparator = "";
+        string argListSuffix = "";
+        if (prettyArgs.size() > 0) {
+            argListPrefix = "(";
+            argListSeparator = ", ";
+            argListSuffix = ")";
+        }
+
+        auto result = fmt::format("{}def {}{}{}{}{}", visibility, methodNamePrefix, methodName, argListPrefix,
+                                  fmt::join(prettyArgs, argListSeparator), argListSuffix);
+        if (prettyArgs.size() > 0 && result.length() >= MAX_PRETTY_WIDTH) {
+            argListPrefix = "(\n  ";
+            argListSeparator = ",\n  ";
+            argListSuffix = "\n)";
+            result = fmt::format("{}def {}{}{}{}{}", visibility, methodNamePrefix, methodName, argListPrefix,
+                                 fmt::join(prettyArgs, argListSeparator), argListSuffix);
+        }
+        return result;
     }
 
     void enqueueSymbolsInType(const core::TypePtr &type) {
