@@ -139,6 +139,8 @@ private:
 
         if (!retType) {
             retType = getResultType(gs, method.data(gs)->resultType, method, receiver, constraint);
+        }
+        if (retType) {
             enqueueSymbolsInType(retType);
         }
         string methodReturnType =
