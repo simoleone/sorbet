@@ -531,16 +531,13 @@ private:
                         case core::SymbolRef::Kind::FieldOrStaticField: {
                             auto field = member.asFieldRef();
                             if (field.data(gs)->isField()) {
-                                pendingFields.emplace_back(field);
+                                emit(field);
                             } else {
                                 maybeEmit(field);
                             }
                             break;
                         }
                     }
-                }
-                for (auto field : pendingFields) {
-                    emit(field);
                 }
             }
         }
