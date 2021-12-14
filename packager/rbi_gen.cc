@@ -504,6 +504,12 @@ private:
 
             auto singleton = klass.data(gs)->lookupSingletonClass(gs);
             if (singleton.exists()) {
+                // Mixins (include/extend)
+                for (auto mixin : singleton.data(gs)->mixins()) {
+                    out.println("extend {}", mixin.show(gs));
+                    maybeEmit(mixin);
+                }
+
                 for (auto &[name, member] : singleton.data(gs)->membersStableOrderSlow(gs)) {
                     if (shouldSkipMember(name)) {
                         continue;
