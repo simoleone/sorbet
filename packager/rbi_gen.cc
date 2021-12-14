@@ -687,8 +687,11 @@ public:
             emitLoop();
 
             auto testOutputFile = absl::StrCat(outputDir, "/", pkg.mangledName().show(gs), ".test.rbi");
-            // cerr << testOutputFile << "\n";
-            FileOps::write(testOutputFile, out.toString());
+            auto rbiText = out.toString();
+            if (!rbiText.empty()) {
+                // cerr << testOutputFile << "\n";
+                FileOps::write(testOutputFile, rbiText);
+            }
         }
     }
 };
