@@ -452,7 +452,12 @@ string TypeMemberRef::show(const GlobalState &gs) const {
         ENFORCE(attached.exists());
         return fmt::format("T.attached_class (of {})", attached.show(gs));
     }
-    return showInternal(gs, sym->owner, sym->name, COLON_SEPARATOR);
+    auto owner = sym->owner;
+    // Don't show T.class_of(Foo)::Field; show Foo::Field.
+    if (sym->owner.asClassOrModuleRef().data(gs)->isSingletonClass(gs)) {
+        owner = sym->owner.asClassOrModuleRef().data(gs)->attachedClass(gs);
+    }
+    return showInternal(gs, owner, sym->name, COLON_SEPARATOR);
 }
 
 TypePtr ArgInfo::argumentTypeAsSeenByImplementation(Context ctx, core::TypeConstraint &constr) const {
