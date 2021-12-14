@@ -494,7 +494,7 @@ private:
                         if (field.data(gs)->isField()) {
                             pendingFields.emplace_back(field);
                         } else {
-                            emit(field);
+                            maybeEmit(field);
                         }
                         break;
                     }
@@ -502,6 +502,7 @@ private:
             }
 
             maybeEmitInitialized(initializeMethod, pendingFields);
+            pendingFields.clear();
 
             auto singleton = klass.data(gs)->lookupSingletonClass(gs);
             if (singleton.exists()) {
@@ -538,10 +539,11 @@ private:
                         }
                     }
                 }
+                for (auto field : pendingFields) {
+                    emit(field);
+                }
             }
         }
-
-        // TODO: Fields on singleton class.
 
         out.println("end");
     }
@@ -598,10 +600,6 @@ private:
         }
     }
     void emit(core::FieldRef field) {
-        if (emittedSymbols.contains(field)) {
-            return;
-        }
-        emittedSymbols.insert(field);
         // cerr << "Emitting " << field.show(gs) << "\n";
         if (field.data(gs)->isStaticField()) {
             // Static field
